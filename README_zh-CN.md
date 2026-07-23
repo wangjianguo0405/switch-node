@@ -24,6 +24,8 @@
 
 ## 安装
 
+> ⚠️ **重要**：使用前请先卸载系统中已安装的 Node.js（控制面板 → 程序和功能），避免 PATH 冲突导致版本切换无效。
+
 从 [Releases](https://github.com/wangjianguo0405/switch-node/releases) 下载最新的 `switch-node.exe`（绿色便携版，无需安装）。
 
 ## 使用

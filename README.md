@@ -24,6 +24,8 @@
 
 ## Install
 
+> ⚠️ **Important**: Uninstall any existing Node.js installation first (Control Panel → Programs and Features) to avoid PATH conflicts that prevent version switching.
+
 Download the latest `switch-node.exe` (portable, no install required) from [Releases](https://github.com/wangjianguo0405/switch-node/releases).
 
 ## Usage

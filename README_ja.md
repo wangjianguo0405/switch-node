@@ -24,6 +24,8 @@
 
 ## インストール
 
+> ⚠️ **重要**：PATH 競合によるバージョン切替の不具合を防ぐため、システムにインストール済みの Node.js を事前にアンインストールしてください（コントロールパネル → プログラムと機能）。
+
 [Releases](https://github.com/wangjianguo0405/switch-node/releases) から最新の `switch-node.exe`（ポータブル版、インストール不要）をダウンロードしてください。
 
 ## 使い方
