@@ -14,7 +14,6 @@ type ConfigState<'a> = State<'a, AppState>;
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub version: String,
-    pub is_admin: bool,
 }
 
 /// Get current configuration
@@ -212,6 +211,5 @@ pub fn detect_system_node(state: ConfigState<'_>) -> Result<Option<SystemNodeInf
 pub fn get_app_info() -> Result<AppInfo, String> {
     Ok(AppInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        is_admin: node_manager::is_admin(),
     })
 }

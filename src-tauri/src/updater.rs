@@ -44,40 +44,49 @@ pub fn get_current_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-// ── GitHub API helpers ─────────────────────────────────────────
+// ── GitHub API helpers (async, using reqwest) ─────────────────
 
-fn make_request(url: &str, token: Option<&str>) -> Result<String, String> {
-    let mut req = ureq::get(url)
-        .header("Accept", "application/vnd.github.v3+json")
-        .header("User-Agent", "SwitchNode-Updater/1.0");
-
+fn build_headers(token: Option<&str>) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("Accept", "application/vnd.github.v3+json".parse().unwrap());
+    headers.insert("User-Agent", "SwitchNode-Updater/1.0".parse().unwrap());
     if let Some(t) = token {
         if !t.is_empty() {
-            req = req.header("Authorization", &format!("Bearer {}", t));
+            headers.insert(
+                "Authorization",
+                format!("Bearer {}", t).parse().unwrap(),
+            );
         }
     }
+    headers
+}
 
-    let resp = req
-        .call()
+async fn make_request_async(url: &str, token: Option<&str>) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(url)
+        .headers(build_headers(token))
+        .send()
+        .await
         .map_err(|e| format!("GitHub API request failed: {}", e))?;
 
     let status = resp.status();
 
-    if status == 404 {
+    if status == reqwest::StatusCode::NOT_FOUND {
         return Err("NOT_FOUND".to_string());
     }
-    if status == 403 {
+    if status == reqwest::StatusCode::FORBIDDEN {
         return Err(
             "GitHub API rate limit exceeded. Please wait and try again, or set a GitHub token."
                 .to_string(),
         );
     }
-    if status != 200 {
+    if !status.is_success() {
         return Err(format!("GitHub API error: HTTP {}", status));
     }
 
-    resp.into_body()
-        .read_to_string()
+    resp.text()
+        .await
         .map_err(|e| format!("Failed to read response: {}", e))
 }
 
@@ -85,17 +94,17 @@ fn parse_tag_semver(tag: &str) -> semver::Version {
     semver::Version::parse(tag.trim_start_matches('v')).unwrap_or(semver::Version::new(0, 0, 0))
 }
 
-fn try_get_latest(owner: &str, repo: &str, token: Option<&str>) -> Result<GitHubRelease, String> {
+async fn try_get_latest(owner: &str, repo: &str, token: Option<&str>) -> Result<GitHubRelease, String> {
     let url = format!(
         "https://api.github.com/repos/{}/{}/releases/latest",
         owner, repo
     );
-    let body = make_request(&url, token)?;
+    let body = make_request_async(&url, token).await?;
     serde_json::from_str::<GitHubRelease>(&body)
         .map_err(|e| format!("JSON parse error: {}", e))
 }
 
-fn fetch_release_list(
+async fn fetch_release_list(
     owner: &str,
     repo: &str,
     token: Option<&str>,
@@ -104,7 +113,7 @@ fn fetch_release_list(
         "https://api.github.com/repos/{}/{}/releases?per_page=20",
         owner, repo
     );
-    let body = make_request(&url, token)?;
+    let body = make_request_async(&url, token).await?;
 
     let mut releases: Vec<GitHubRelease> =
         serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
@@ -128,14 +137,14 @@ fn fetch_release_list(
     Ok(releases.into_iter().next().unwrap())
 }
 
-fn fetch_latest_release(
+async fn fetch_latest_release(
     owner: &str,
     repo: &str,
     token: Option<&str>,
 ) -> Result<GitHubRelease, String> {
-    match try_get_latest(owner, repo, token) {
+    match try_get_latest(owner, repo, token).await {
         Ok(release) => Ok(release),
-        Err(_) => fetch_release_list(owner, repo, token),
+        Err(_) => fetch_release_list(owner, repo, token).await,
     }
 }
 
@@ -161,7 +170,7 @@ fn find_windows_asset(release: &GitHubRelease) -> Option<&GitHubAsset> {
 
 // ── Check update ───────────────────────────────────────────────
 
-pub fn check_update(config: &AppConfig) -> Result<UpdateInfo, String> {
+pub async fn check_update(config: &AppConfig) -> Result<UpdateInfo, String> {
     if config.github_owner.is_empty() || config.github_repo.is_empty() {
         return Err(
             "Update repository not configured. Please set Owner/Repo in settings.".to_string(),
@@ -169,11 +178,28 @@ pub fn check_update(config: &AppConfig) -> Result<UpdateInfo, String> {
     }
 
     let current = get_current_version();
-    let release = fetch_latest_release(
+    let release = match fetch_latest_release(
         &config.github_owner,
         &config.github_repo,
         config.github_token.as_deref(),
-    )?;
+    ).await {
+        Ok(r) => r,
+        Err(e) => {
+            // "No releases found" means the repo exists but has no releases yet — not an error
+            if e.contains("No releases found") {
+                return Ok(UpdateInfo {
+                    has_update: false,
+                    current_version: current.clone(),
+                    latest_version: current,
+                    release_notes: String::new(),
+                    download_url: String::new(),
+                    asset_name: String::new(),
+                    asset_size: 0,
+                });
+            }
+            return Err(e);
+        }
+    };
 
     let latest_tag = release.tag_name.trim_start_matches('v').to_string();
 

@@ -34,6 +34,9 @@ interface NodeStore {
   // ── Download ──
   downloadProgress: DownloadProgress | null;
 
+  // ── App Info ──
+  appVersion: string;
+
   // ── UI State ──
   selectedVersion: string | null;
   searchQuery: string;
@@ -95,6 +98,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   showCurrent: true,
   showLts: true,
   showEol: false,
+  appVersion: "...",
   settingsOpen: false,
   wizardStep: 0,
   // ── Update initial ──
@@ -114,6 +118,14 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       const config = await commands.getConfig();
       setLanguage(config.language);
       set({ config });
+
+      // Load app version (once at startup)
+      try {
+        const info = await commands.getAppInfo();
+        set({ appVersion: info.version });
+      } catch {
+        // non-critical
+      }
 
       // Scan local versions
       const local = await commands.scanLocalVersions();

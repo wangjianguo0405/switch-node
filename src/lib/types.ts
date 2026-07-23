@@ -79,7 +79,6 @@ export interface DownloadProgress {
 // ── App Info ──
 export interface AppInfo {
   version: string;
-  isAdmin: boolean;
 }
 
 // ── System Node.js (detected via PATH) ──

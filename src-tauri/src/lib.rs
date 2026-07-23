@@ -68,13 +68,20 @@ pub fn run() {
 // ── Update commands ────────────────────────────────────────────
 
 #[tauri::command]
-fn check_update(state: State<AppState>) -> Result<updater::UpdateInfo, String> {
-    let mut app_config = state.config.lock().map_err(|e| e.to_string())?;
-    let info = updater::check_update(&app_config)?;
+async fn check_update(state: State<'_, AppState>) -> Result<updater::UpdateInfo, String> {
+    let app_config = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.clone()
+    };
+
+    let info = updater::check_update(&app_config).await?;
 
     // Update last_check timestamp and save
-    app_config.last_check = Some(Utc::now().to_rfc3339());
-    config::save_config(&app_config).map_err(|e| e.to_string())?;
+    {
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.last_check = Some(Utc::now().to_rfc3339());
+        config::save_config(&config).map_err(|e| e.to_string())?;
+    }
 
     Ok(info)
 }

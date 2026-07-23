@@ -70,6 +70,7 @@
   "settings.architecture": "CPU 架构",
   "settings.keepDownloads": "保留下载文件",
   "settings.downloadDir": "下载缓存目录",
+    "settings.downloadDirPlaceholder": "空白则使用系统临时目录",
   "settings.minVersion": "最低显示版本",
   "settings.showEOL": "显示已终止支持的版本",
   "settings.prerelease": "显示预发布版本",
@@ -114,7 +115,7 @@
   "settings.update": "更新",
   "settings.about": "关于",
 
-  "about.upToDate": "✓ 已是最新版本",
+  "about.upToDate": "已是最新版本",
   "about.newVersionAvailable": "新版本 v{version} 可用",
   "about.clickToCheck": "点击按钮检查更新",
   "about.checkForUpdates": "检查更新",

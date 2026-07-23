@@ -70,6 +70,7 @@
   "settings.architecture": "CPU Architecture",
   "settings.keepDownloads": "Keep Downloaded Files",
   "settings.downloadDir": "Download Cache Directory",
+    "settings.downloadDirPlaceholder": "Leave empty to use system temp directory",
   "settings.minVersion": "Minimum Version to Show",
   "settings.showEOL": "Show End-of-Life Versions",
   "settings.prerelease": "Show Prerelease Versions",
@@ -114,7 +115,7 @@
   "settings.update": "Update",
   "settings.about": "About",
 
-  "about.upToDate": "✓ Up to date",
+  "about.upToDate": "Up to date",
   "about.newVersionAvailable": "New version v{version} available",
   "about.clickToCheck": "Click to check for updates",
   "about.checkForUpdates": "Check for Updates",

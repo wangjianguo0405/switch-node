@@ -70,6 +70,7 @@
   "settings.architecture": "CPU アーキテクチャ",
   "settings.keepDownloads": "ダウンロードファイルを保持",
   "settings.downloadDir": "ダウンロードキャッシュ先",
+    "settings.downloadDirPlaceholder": "空の場合はシステム一時ディレクトリを使用",
   "settings.minVersion": "表示する最低バージョン",
   "settings.showEOL": "サポート終了バージョンを表示",
   "settings.prerelease": "プレリリース版を表示",
@@ -114,7 +115,7 @@
   "settings.update": "更新",
   "settings.about": "について",
 
-  "about.upToDate": "✓ 最新です",
+  "about.upToDate": "最新です",
   "about.newVersionAvailable": "新バージョン v{version} が利用可能",
   "about.clickToCheck": "クリックして更新を確認",
   "about.checkForUpdates": "更新を確認",
