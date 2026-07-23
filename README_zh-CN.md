@@ -23,7 +23,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/example/switch-node/releases) 下载最新的 `.msi` 或 `.zip`。
+从 [Releases](https://github.com/wangjianguo0405/switch-node/releases) 下载最新的 `switch-node.exe`（绿色便携版，无需安装）。
 
 ## 使用
 

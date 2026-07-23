@@ -23,7 +23,7 @@
 
 ## Install
 
-Download the latest `.msi` or portable `.zip` from [Releases](https://github.com/example/switch-node/releases).
+Download the latest `switch-node.exe` (portable, no install required) from [Releases](https://github.com/wangjianguo0405/switch-node/releases).
 
 ## Usage
 

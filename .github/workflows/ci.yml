@@ -25,6 +25,9 @@ jobs:
       - name: TypeScript type-check
         run: npx tsc --noEmit
 
+      - name: Build frontend (required for tauri context)
+        run: npm run build
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 

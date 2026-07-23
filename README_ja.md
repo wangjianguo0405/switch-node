@@ -23,7 +23,7 @@
 
 ## インストール
 
-[Releases](https://github.com/example/switch-node/releases) から最新の `.msi` または `.zip` をダウンロードしてください。
+[Releases](https://github.com/wangjianguo0405/switch-node/releases) から最新の `switch-node.exe`（ポータブル版、インストール不要）をダウンロードしてください。
 
 ## 使い方
 
