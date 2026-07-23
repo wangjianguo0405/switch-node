@@ -70,7 +70,40 @@ get_app_info / detect_system_node / open_release_notes(version)
 
 Portable mode: `config.json` (or `.toml` / `.ini`) lives next to the exe. Auto-generated on first run. Key fields: `nodeRoot`, `symlinkName` (default `"current"`), `mirror`, `architecture`, `npmMirror`, `language`, `theme`.
 
+### Auto-update (`src-tauri/src/updater.rs`)
+
+Custom green/portable auto-update via GitHub Releases API (no Tauri updater plugin):
+- `check_update` → fetches latest release, compares semver, returns `UpdateInfo`
+- `download_and_install` → downloads asset to `%TEMP%/switch-node_update/`, spawns `updater.bat`, exits app
+- Batch script waits for process exit → copies new exe → restarts
+- Config stored in `switch-node-config.json` next to exe (separate from main config)
+- Supports optional GitHub token for higher API rate limits
+- `update_interval: 0` = check only at startup
+
 ### Two separate dependency systems
 
 - **Frontend** (`package.json`): npm — React, Zustand, Tailwind, Tauri API packages, lucide-react
-- **Backend** (`src-tauri/Cargo.toml`): Cargo — tauri 2, reqwest, zip, sha2, serde, tokio, semver, chrono
+- **Backend** (`src-tauri/Cargo.toml`): Cargo — tauri 2, reqwest, zip, sha2, serde, tokio, semver, chrono, ureq
+
+## Release
+
+### Version bump checklist
+
+When publishing a new release, update these 3 files to the same version (e.g. `1.0.1`):
+
+| File | Field |
+|------|-------|
+| `src-tauri/Cargo.toml` | `version = "x.y.z"` |
+| `src-tauri/tauri.conf.json` | `"version": "x.y.z"` |
+| `package.json` | `"version": "x.y.z"` (then run `npm install` to update lockfile) |
+
+Also update `CHANGELOG.md` with the new version entry.
+
+### Tag and push
+
+```bash
+git tag -a vx.y.z -m "vx.y.z: <summary>"
+git push origin main --tags
+```
+
+The Release workflow builds `switch-node.exe` (portable, ~18MB) and creates a draft release on GitHub. Review and publish from the Releases page.
