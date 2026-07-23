@@ -6,7 +6,6 @@ import type {
   AppInfo,
   SystemNodeInfo,
   UpdateInfo,
-  UpdateConfig,
 } from "./types";
 
 // ── Config ──
@@ -75,14 +74,4 @@ export async function downloadAndInstall(
     downloadUrl,
     assetName,
   });
-}
-
-export async function getUpdateConfig(): Promise<UpdateConfig> {
-  return invoke<UpdateConfig>("get_update_config");
-}
-
-export async function saveUpdateConfig(
-  config: UpdateConfig
-): Promise<void> {
-  return invoke<void>("save_update_config", { config });
 }

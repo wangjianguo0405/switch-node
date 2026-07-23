@@ -6,9 +6,10 @@ mod node_manager;
 mod remote;
 mod updater;
 
+use chrono::Utc;
 use log::info;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, State};
 
 pub struct AppState {
     pub config: Mutex<config::AppConfig>,
@@ -59,8 +60,6 @@ pub fn run() {
             // Update commands
             check_update,
             download_and_install,
-            get_update_config,
-            save_update_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -69,14 +68,13 @@ pub fn run() {
 // ── Update commands ────────────────────────────────────────────
 
 #[tauri::command]
-fn check_update() -> Result<updater::UpdateInfo, String> {
-    let config = updater::load_update_config();
-    let info = updater::check_update(&config)?;
+fn check_update(state: State<AppState>) -> Result<updater::UpdateInfo, String> {
+    let mut app_config = state.config.lock().map_err(|e| e.to_string())?;
+    let info = updater::check_update(&app_config)?;
 
-    // Update last_check timestamp
-    let mut updated_config = config;
-    updated_config.last_check = Some(chrono::Utc::now().to_rfc3339());
-    let _ = updater::save_update_config(&updated_config);
+    // Update last_check timestamp and save
+    app_config.last_check = Some(Utc::now().to_rfc3339());
+    config::save_config(&app_config).map_err(|e| e.to_string())?;
 
     Ok(info)
 }
@@ -84,6 +82,7 @@ fn check_update() -> Result<updater::UpdateInfo, String> {
 #[tauri::command]
 fn download_and_install(
     app_handle: tauri::AppHandle,
+    state: State<AppState>,
     download_url: String,
     asset_name: String,
 ) -> Result<(), String> {
@@ -93,7 +92,7 @@ fn download_and_install(
         .unwrap()
         .to_path_buf();
 
-    let config = updater::load_update_config();
+    let config = state.config.lock().map_err(|e| e.to_string())?;
     updater::download_and_install(
         &download_url,
         &asset_name,
@@ -104,14 +103,4 @@ fn download_and_install(
     // Batch script launched — exit app
     app_handle.exit(0);
     Ok(())
-}
-
-#[tauri::command]
-fn get_update_config() -> Result<updater::UpdateConfig, String> {
-    Ok(updater::load_update_config())
-}
-
-#[tauri::command]
-fn save_update_config(config: updater::UpdateConfig) -> Result<(), String> {
-    updater::save_update_config(&config)
 }

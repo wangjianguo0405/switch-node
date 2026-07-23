@@ -16,6 +16,11 @@ export interface AppConfig {
   npmMirror: string;
   language: "zh-CN" | "en" | "ja";
   theme: "light" | "dark" | "system";
+  githubOwner: string;
+  githubRepo: string;
+  githubToken?: string | null;
+  lastCheck?: string | null;
+  updateIntervalMinutes: number;
 }
 
 // ── Version Status ──
@@ -94,14 +99,6 @@ export interface UpdateInfo {
   download_url: string;
   asset_name: string;
   asset_size: number;
-}
-
-export interface UpdateConfig {
-  github_owner: string;
-  github_repo: string;
-  github_token?: string | null;
-  last_check?: string | null;
-  update_interval: number; // minutes, 0 = startup only
 }
 
 export type UpdateStatus = "idle" | "checking" | "latest" | "available" | "error";

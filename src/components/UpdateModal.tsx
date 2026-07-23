@@ -111,9 +111,9 @@ export function UpdateModal() {
             onClick={() => {
               if (updateInfo?.release_notes) {
                 // Open the release page — user needs to configure owner/repo
-                const config = useNodeStore.getState().selfUpdateConfig;
-                if (config.github_owner && config.github_repo && updateInfo) {
-                  const url = `https://github.com/${config.github_owner}/${config.github_repo}/releases/tag/v${updateInfo.latest_version}`;
+                const config = useNodeStore.getState().config;
+                if (config?.githubOwner && config?.githubRepo && updateInfo) {
+                  const url = `https://github.com/${config.githubOwner}/${config.githubRepo}/releases/tag/v${updateInfo.latest_version}`;
                   import("@tauri-apps/plugin-shell").then((shell) => {
                     shell.open(url);
                   });

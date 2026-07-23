@@ -1,40 +1,9 @@
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-// ── Update Config ──────────────────────────────────────────────
-
-const CONFIG_FILE: &str = "switch-node-config.json";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateConfig {
-    pub github_owner: String,
-    pub github_repo: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub github_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_check: Option<String>,
-    /// Update check interval in minutes. 0 = startup only. Default 60.
-    #[serde(default = "default_update_interval")]
-    pub update_interval: u64,
-}
-
-fn default_update_interval() -> u64 {
-    60
-}
-
-impl Default for UpdateConfig {
-    fn default() -> Self {
-        Self {
-            github_owner: String::new(),
-            github_repo: String::new(),
-            github_token: None,
-            last_check: None,
-            update_interval: 60,
-        }
-    }
-}
+use crate::config::AppConfig;
 
 // ── Update Info ────────────────────────────────────────────────
 
@@ -51,7 +20,7 @@ pub struct UpdateInfo {
 
 // ── GitHub API types ───────────────────────────────────────────
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct GitHubRelease {
     tag_name: String,
     body: Option<String>,
@@ -60,47 +29,13 @@ struct GitHubRelease {
     assets: Vec<GitHubAsset>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct GitHubAsset {
     name: String,
     #[allow(dead_code)]
     browser_download_url: String,
     url: String,
     size: u64,
-}
-
-// ── Config persistence ─────────────────────────────────────────
-
-fn exe_dir() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-}
-
-fn config_path() -> Option<PathBuf> {
-    exe_dir().map(|d| d.join(CONFIG_FILE))
-}
-
-pub fn load_update_config() -> UpdateConfig {
-    match config_path() {
-        Some(ref p) if p.exists() => {
-            match std::fs::read_to_string(p) {
-                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
-                Err(_) => UpdateConfig::default(),
-            }
-        }
-        _ => UpdateConfig::default(),
-    }
-}
-
-pub fn save_update_config(config: &UpdateConfig) -> Result<(), String> {
-    let dir = exe_dir().ok_or_else(|| "Cannot find app directory".to_string())?;
-    let path = dir.join(CONFIG_FILE);
-    let json = serde_json::to_string_pretty(config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Failed to write config file: {}", e))?;
-    Ok(())
 }
 
 // ── Version ────────────────────────────────────────────────────
@@ -133,7 +68,8 @@ fn make_request(url: &str, token: Option<&str>) -> Result<String, String> {
     }
     if status == 403 {
         return Err(
-            "GitHub API rate limit exceeded. Please wait and try again, or set a GitHub token.".to_string(),
+            "GitHub API rate limit exceeded. Please wait and try again, or set a GitHub token."
+                .to_string(),
         );
     }
     if status != 200 {
@@ -170,21 +106,19 @@ fn fetch_release_list(
     );
     let body = make_request(&url, token)?;
 
-    let mut releases: Vec<GitHubRelease> = serde_json::from_str(&body)
-        .map_err(|e| format!("JSON parse error: {}", e))?;
+    let mut releases: Vec<GitHubRelease> =
+        serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
 
     if releases.is_empty() {
         return Err("No releases found".to_string());
     }
 
-    // Sort by semver descending
     releases.sort_by(|a, b| {
         let va = parse_tag_semver(&a.tag_name);
         let vb = parse_tag_semver(&b.tag_name);
         vb.cmp(&va)
     });
 
-    // Find first release with assets
     for r in &releases {
         if !r.assets.is_empty() {
             return Ok(r.clone());
@@ -227,7 +161,7 @@ fn find_windows_asset(release: &GitHubRelease) -> Option<&GitHubAsset> {
 
 // ── Check update ───────────────────────────────────────────────
 
-pub fn check_update(config: &UpdateConfig) -> Result<UpdateInfo, String> {
+pub fn check_update(config: &AppConfig) -> Result<UpdateInfo, String> {
     if config.github_owner.is_empty() || config.github_repo.is_empty() {
         return Err(
             "Update repository not configured. Please set Owner/Repo in settings.".to_string(),
@@ -275,7 +209,6 @@ pub fn download_and_install(
     let temp_dir = std::env::temp_dir().join("switch-node_update");
     let new_dir = temp_dir.join("new");
 
-    // Clean up previous leftovers
     if new_dir.exists() {
         let _ = std::fs::remove_dir_all(&new_dir);
     }
@@ -299,8 +232,7 @@ pub fn download_and_install(
         download_url
     );
 
-    let mut dl_req =
-        ureq::get(download_url).header("User-Agent", "SwitchNode-Updater/1.0");
+    let mut dl_req = ureq::get(download_url).header("User-Agent", "SwitchNode-Updater/1.0");
 
     if is_api_url {
         dl_req = dl_req.header("Accept", "application/octet-stream");
@@ -354,7 +286,6 @@ pub fn download_and_install(
             .or_else(|_| std::fs::copy(&download_path, &dest).map(|_| ()))
             .map_err(|e| format!("Failed to move file: {}", e))?;
     } else {
-        // Extract zip
         log::info!("[UPDATER] Extracting to: {}", new_dir.display());
         let zip_file = std::fs::File::open(&download_path)
             .map_err(|e| format!("Failed to open zip: {}", e))?;
@@ -397,7 +328,6 @@ pub fn download_and_install(
         log::info!("[UPDATER] Extraction complete");
     }
 
-    // ── Spawn batch script ──
     spawn_update_script(&new_dir, app_dir, is_exe)?;
 
     Ok(())
@@ -484,7 +414,10 @@ del "%~f0"
     std::fs::write(&script_path, &script)
         .map_err(|e| format!("Failed to create update script: {}", e))?;
 
-    log::info!("[UPDATER] Spawning updater script: {}", script_path.display());
+    log::info!(
+        "[UPDATER] Spawning updater script: {}",
+        script_path.display()
+    );
 
     std::process::Command::new("cmd")
         .args(["/C", script_path.to_str().unwrap_or("updater.bat")])

@@ -17,7 +17,6 @@ function App() {
     downloadProgress,
     loading,
     handleCheckUpdate,
-    loadUpdateConfig,
   } = useNodeStore();
   const initialized = useRef(false);
 
@@ -25,25 +24,20 @@ function App() {
     initialize();
   }, [initialize]);
 
-  // Auto update check: load config on mount, then check 3s after init
+  // Auto update check: first check 3s after init, then periodic
   useEffect(() => {
     if (!loading && !initialized.current) {
       initialized.current = true;
-      loadUpdateConfig().then(() => {
-        const config = useNodeStore.getState().selfUpdateConfig;
-        // 3s delay for first silent check
-        setTimeout(() => {
+      const config = useNodeStore.getState().config;
+      setTimeout(() => {
+        handleCheckUpdate();
+      }, 3000);
+      if (config && config.updateIntervalMinutes > 0) {
+        const timer = setInterval(() => {
           handleCheckUpdate();
-        }, 3000);
-        // Periodic check
-        if (config.update_interval > 0) {
-          const interval = setInterval(() => {
-            handleCheckUpdate();
-          }, config.update_interval * 60 * 1000);
-          // Store interval ID for cleanup would be ideal, but simple approach:
-          return () => clearInterval(interval);
-        }
-      });
+        }, config.updateIntervalMinutes * 60 * 1000);
+        return () => clearInterval(timer);
+      }
     }
   }, [loading]);
 

@@ -6,7 +6,6 @@ import type {
   DownloadProgress,
   SystemNodeInfo,
   UpdateInfo,
-  UpdateConfig,
   UpdateStatus,
 } from "../lib/types";
 import * as commands from "../lib/commands";
@@ -47,7 +46,6 @@ interface NodeStore {
   // ── Update ──
   updateStatus: UpdateStatus;
   updateInfo: UpdateInfo | null;
-  selfUpdateConfig: UpdateConfig;
   showUpdateModal: boolean;
   updateDownloading: boolean;
   updateProgress: number;
@@ -74,10 +72,8 @@ interface NodeStore {
   clearDownloadProgress: () => void;
 
   // ── Update Actions ──
-  loadUpdateConfig: () => Promise<void>;
   handleCheckUpdate: () => Promise<void>;
   handleDownloadUpdate: () => Promise<void>;
-  handleSaveUpdateConfig: (config: UpdateConfig) => Promise<void>;
   setShowUpdateModal: (show: boolean) => void;
 }
 
@@ -104,13 +100,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   // ── Update initial ──
   updateStatus: "checking",
   updateInfo: null,
-  selfUpdateConfig: {
-    github_owner: "",
-    github_repo: "",
-    github_token: null,
-    last_check: null,
-    update_interval: 60,
-  },
   showUpdateModal: false,
   updateDownloading: false,
   updateProgress: 0,
@@ -329,22 +318,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   clearDownloadProgress: () => set({ downloadProgress: null }),
 
   // ── Update Actions ──
-  loadUpdateConfig: async () => {
-    try {
-      const config = await commands.getUpdateConfig();
-      set({ selfUpdateConfig: config });
-    } catch {
-      // Keep defaults
-    }
-  },
-
   handleCheckUpdate: async () => {
     set({ updateStatus: "checking" });
     try {
-      const config = await commands.getUpdateConfig();
-      set({ selfUpdateConfig: config });
-
-      if (!config.github_owner || !config.github_repo) {
+      const cfg = get().config;
+      if (!cfg?.githubOwner || !cfg?.githubRepo) {
         set({ updateStatus: "idle" });
         return;
       }
@@ -354,6 +332,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         updateInfo: info,
         updateStatus: info.has_update ? "available" : "latest",
       });
+
+      // Refresh config to get updated lastCheck
+      const refreshed = await commands.getConfig();
+      set({ config: refreshed });
     } catch {
       set({ updateStatus: "error" });
     }
@@ -373,7 +355,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         throw new Error("Download URL not found");
       }
 
-      // Simulated progress (app exits on completion)
       const timer = setInterval(() => {
         set((s) => ({
           updateProgress: Math.min(s.updateProgress + 10, 90),
@@ -389,16 +370,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         updateStatus: "error",
       });
       console.error("Update failed:", e);
-    }
-  },
-
-  handleSaveUpdateConfig: async (config: UpdateConfig) => {
-    try {
-      await commands.saveUpdateConfig(config);
-      set({ selfUpdateConfig: config });
-    } catch (e) {
-      console.error("Failed to save update config:", e);
-      throw e;
     }
   },
 

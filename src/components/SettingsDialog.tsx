@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNodeStore } from "../stores/useNodeStore";
 import { t } from "../lib/i18n";
 import { X, FolderOpen, RefreshCw, ExternalLink, Check, AlertCircle, ArrowDown } from "lucide-react";
-import type { AppConfig, UpdateConfig } from "../lib/types";
+import type { AppConfig } from "../lib/types";
 import { getAppInfo } from "../lib/commands";
 
 const TABS = [
@@ -17,10 +17,9 @@ const TABS = [
 ];
 
 export function SettingsDialog() {
-  const { config, setSettingsOpen, updateConfig, selfUpdateConfig, handleSaveUpdateConfig, updateInfo, updateStatus, handleCheckUpdate, setShowUpdateModal } = useNodeStore();
+  const { config, setSettingsOpen, updateConfig, updateInfo, updateStatus, handleCheckUpdate, setShowUpdateModal } = useNodeStore();
   const [activeTab, setActiveTab] = useState("settings.paths");
   const [form, setForm] = useState<AppConfig | null>(null);
-  const [updateForm, setUpdateForm] = useState<UpdateConfig | null>(null);
   const [appVersion, setAppVersion] = useState("...");
 
   // Load app version when about tab opens
@@ -36,13 +35,6 @@ export function SettingsDialog() {
     }
   }, [config]);
 
-  // Load update config when update tab is opened
-  useEffect(() => {
-    if (activeTab === "settings.update" && !updateForm) {
-      setUpdateForm({ ...selfUpdateConfig });
-    }
-  }, [activeTab, selfUpdateConfig]);
-
   if (!form) return null;
 
   const handleChange = (key: keyof AppConfig, value: unknown) => {
@@ -52,16 +44,6 @@ export function SettingsDialog() {
   const isAboutTab = activeTab === "settings.about";
 
   const handleSave = async () => {
-    if (activeTab === "settings.update") {
-      if (!updateForm) return;
-      try {
-        await handleSaveUpdateConfig(updateForm);
-        setSettingsOpen(false);
-      } catch {
-        // Error handled in store
-      }
-      return;
-    }
     if (!form) return;
     try {
       await updateConfig(form);
@@ -272,54 +254,34 @@ export function SettingsDialog() {
               </div>
             )}
 
-            {activeTab === "settings.update" && updateForm && (
+            {activeTab === "settings.update" && (
               <div className="space-y-4">
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
                   {t("update.description")}
                 </p>
                 <Field
                   label={t("update.githubOwner")}
-                  value={updateForm.github_owner}
-                  onChange={(v) =>
-                    setUpdateForm((prev) =>
-                      prev ? { ...prev, github_owner: v } : prev
-                    )
-                  }
+                  value={form.githubOwner}
+                  onChange={(v) => handleChange("githubOwner", v)}
                   placeholder="e.g. your-username"
                 />
                 <Field
                   label={t("update.githubRepo")}
-                  value={updateForm.github_repo}
-                  onChange={(v) =>
-                    setUpdateForm((prev) =>
-                      prev ? { ...prev, github_repo: v } : prev
-                    )
-                  }
+                  value={form.githubRepo}
+                  onChange={(v) => handleChange("githubRepo", v)}
                   placeholder="e.g. switch-node"
                 />
                 <Field
                   label={t("update.githubToken")}
-                  value={updateForm.github_token ?? ""}
-                  onChange={(v) =>
-                    setUpdateForm((prev) =>
-                      prev
-                        ? { ...prev, github_token: v || null }
-                        : prev
-                    )
-                  }
+                  value={form.githubToken ?? ""}
+                  onChange={(v) => handleChange("githubToken", v || null)}
                   type="password"
                   placeholder={t("update.githubTokenPlaceholder")}
                 />
                 <SelectField
                   label={t("update.interval")}
-                  value={String(updateForm.update_interval)}
-                  onChange={(v) =>
-                    setUpdateForm((prev) =>
-                      prev
-                        ? { ...prev, update_interval: parseInt(v) }
-                        : prev
-                    )
-                  }
+                  value={String(form.updateIntervalMinutes)}
+                  onChange={(v) => handleChange("updateIntervalMinutes", parseInt(v))}
                   options={[
                     { value: "0", label: t("update.intervalStartup") },
                     { value: "30", label: t("update.interval30min") },
@@ -413,8 +375,8 @@ export function SettingsDialog() {
                 {/* GitHub link */}
                 <button
                   onClick={() => {
-                    const owner = selfUpdateConfig.github_owner;
-                    const repo = selfUpdateConfig.github_repo;
+                    const owner = form.githubOwner;
+                    const repo = form.githubRepo;
                     if (owner && repo) {
                       import("@tauri-apps/plugin-shell").then((shell) => {
                         shell.open(`https://github.com/${owner}/${repo}`);

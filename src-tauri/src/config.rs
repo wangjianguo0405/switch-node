@@ -50,6 +50,18 @@ pub struct AppConfig {
     #[serde(default = "default_theme")]
     pub theme: String,
 
+    // Update
+    #[serde(default)]
+    pub github_owner: String,
+    #[serde(default)]
+    pub github_repo: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_check: Option<String>,
+    #[serde(default = "default_update_interval_minutes")]
+    pub update_interval_minutes: u64,
+
 }
 
 fn default_node_root() -> String {
@@ -91,6 +103,9 @@ fn default_language() -> String {
 fn default_theme() -> String {
     "system".to_string()
 }
+fn default_update_interval_minutes() -> u64 {
+    60
+}
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -110,6 +125,11 @@ impl Default for AppConfig {
             npm_mirror: default_npm_mirror(),
             language: default_language(),
             theme: default_theme(),
+            github_owner: String::new(),
+            github_repo: String::new(),
+            github_token: None,
+            last_check: None,
+            update_interval_minutes: default_update_interval_minutes(),
         }
     }
 }
@@ -124,7 +144,7 @@ fn exe_dir() -> PathBuf {
 
 /// Detect config file path — always next to the executable (portable mode).
 pub fn detect_config_path() -> PathBuf {
-    exe_dir().join("config.json")
+    exe_dir().join("switch-node-config.json")
 }
 
 /// Detect config format by trying each extension in the exe directory.
@@ -137,14 +157,14 @@ pub fn detect_config_path_with_format() -> (PathBuf, ConfigFormat) {
         ("toml", ConfigFormat::Toml),
         ("ini", ConfigFormat::Ini),
     ] {
-        let path = base_dir.join(format!("config.{}", ext));
+        let path = base_dir.join(format!("switch-node-config.{}", ext));
         if path.exists() {
             return (path, *format);
         }
     }
 
-    // Default: config.json
-    (base_dir.join("config.json"), ConfigFormat::Json)
+    // Default: switch-node-config.json
+    (base_dir.join("switch-node-config.json"), ConfigFormat::Json)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -250,6 +270,17 @@ fn parse_ini_config(content: &str) -> Result<AppConfig, AppError> {
             .unwrap_or(default)
     };
 
+    let get_u64 = |key: &str, default: u64| -> u64 {
+        section
+            .and_then(|s| s.get(key))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    };
+
+    let get_opt = |key: &str| -> Option<String> {
+        section.and_then(|s| s.get(key)).cloned()
+    };
+
     Ok(AppConfig {
         node_root: get_val("nodeRoot", &default_node_root()),
         symlink_name: get_val("symlinkName", &default_symlink_name()),
@@ -267,6 +298,11 @@ fn parse_ini_config(content: &str) -> Result<AppConfig, AppError> {
         npm_mirror: get_val("npmMirror", &default_npm_mirror()),
         language: get_val("language", &default_language()),
         theme: get_val("theme", &default_theme()),
+        github_owner: get_val("githubOwner", ""),
+        github_repo: get_val("githubRepo", ""),
+        github_token: get_opt("githubToken"),
+        last_check: get_opt("lastCheck"),
+        update_interval_minutes: get_u64("updateIntervalMinutes", 60),
     })
 }
 
@@ -293,6 +329,22 @@ fn serialize_ini_config(config: &AppConfig) -> Result<String, AppError> {
     lines.push(format!("npmMirror={}", config.npm_mirror));
     lines.push(format!("language={}", config.language));
     lines.push(format!("theme={}", config.theme));
+    if !config.github_owner.is_empty() {
+        lines.push(format!("githubOwner={}", config.github_owner));
+    }
+    if !config.github_repo.is_empty() {
+        lines.push(format!("githubRepo={}", config.github_repo));
+    }
+    if let Some(ref t) = config.github_token {
+        lines.push(format!("githubToken={}", t));
+    }
+    if let Some(ref lc) = config.last_check {
+        lines.push(format!("lastCheck={}", lc));
+    }
+    lines.push(format!(
+        "updateIntervalMinutes={}",
+        config.update_interval_minutes
+    ));
     Ok(lines.join("\n") + "\n")
 }
 
