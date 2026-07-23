@@ -1,0 +1,18 @@
+{
+  "nodeRoot": "D:\\Program Files\\nodejs",
+  "symlinkName": "current",
+  "mirror": "https://nodejs.org/dist",
+  "mirrorName": "official",
+  "architecture": "x64",
+  "keepDownloads": false,
+  "downloadDir": "",
+  "minVersion": "18.0.0",
+  "showEOL": true,
+  "prerelease": false,
+  "autoRefreshEnv": true,
+  "checkUpdates": true,
+  "updateIntervalHours": 1,
+  "npmMirror": "https://registry.npmjs.org",
+  "language": "zh-CN",
+  "theme": "system"
+}

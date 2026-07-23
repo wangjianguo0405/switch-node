@@ -1,0 +1,495 @@
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+// ── Update Config ──────────────────────────────────────────────
+
+const CONFIG_FILE: &str = "switch-node-config.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    pub github_owner: String,
+    pub github_repo: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_check: Option<String>,
+    /// Update check interval in minutes. 0 = startup only. Default 60.
+    #[serde(default = "default_update_interval")]
+    pub update_interval: u64,
+}
+
+fn default_update_interval() -> u64 {
+    60
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            github_owner: String::new(),
+            github_repo: String::new(),
+            github_token: None,
+            last_check: None,
+            update_interval: 60,
+        }
+    }
+}
+
+// ── Update Info ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateInfo {
+    pub has_update: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub release_notes: String,
+    pub download_url: String,
+    pub asset_name: String,
+    pub asset_size: u64,
+}
+
+// ── GitHub API types ───────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    body: Option<String>,
+    #[allow(dead_code)]
+    prerelease: bool,
+    assets: Vec<GitHubAsset>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GitHubAsset {
+    name: String,
+    #[allow(dead_code)]
+    browser_download_url: String,
+    url: String,
+    size: u64,
+}
+
+// ── Config persistence ─────────────────────────────────────────
+
+fn exe_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+}
+
+fn config_path() -> Option<PathBuf> {
+    exe_dir().map(|d| d.join(CONFIG_FILE))
+}
+
+pub fn load_update_config() -> UpdateConfig {
+    match config_path() {
+        Some(ref p) if p.exists() => {
+            match std::fs::read_to_string(p) {
+                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+                Err(_) => UpdateConfig::default(),
+            }
+        }
+        _ => UpdateConfig::default(),
+    }
+}
+
+pub fn save_update_config(config: &UpdateConfig) -> Result<(), String> {
+    let dir = exe_dir().ok_or_else(|| "Cannot find app directory".to_string())?;
+    let path = dir.join(CONFIG_FILE);
+    let json = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+    Ok(())
+}
+
+// ── Version ────────────────────────────────────────────────────
+
+pub fn get_current_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+// ── GitHub API helpers ─────────────────────────────────────────
+
+fn make_request(url: &str, token: Option<&str>) -> Result<String, String> {
+    let mut req = ureq::get(url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .header("User-Agent", "SwitchNode-Updater/1.0");
+
+    if let Some(t) = token {
+        if !t.is_empty() {
+            req = req.header("Authorization", &format!("Bearer {}", t));
+        }
+    }
+
+    let resp = req
+        .call()
+        .map_err(|e| format!("GitHub API request failed: {}", e))?;
+
+    let status = resp.status();
+
+    if status == 404 {
+        return Err("NOT_FOUND".to_string());
+    }
+    if status == 403 {
+        return Err(
+            "GitHub API rate limit exceeded. Please wait and try again, or set a GitHub token.".to_string(),
+        );
+    }
+    if status != 200 {
+        return Err(format!("GitHub API error: HTTP {}", status));
+    }
+
+    resp.into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {}", e))
+}
+
+fn parse_tag_semver(tag: &str) -> semver::Version {
+    semver::Version::parse(tag.trim_start_matches('v')).unwrap_or(semver::Version::new(0, 0, 0))
+}
+
+fn try_get_latest(owner: &str, repo: &str, token: Option<&str>) -> Result<GitHubRelease, String> {
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        owner, repo
+    );
+    let body = make_request(&url, token)?;
+    serde_json::from_str::<GitHubRelease>(&body)
+        .map_err(|e| format!("JSON parse error: {}", e))
+}
+
+fn fetch_release_list(
+    owner: &str,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<GitHubRelease, String> {
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/releases?per_page=20",
+        owner, repo
+    );
+    let body = make_request(&url, token)?;
+
+    let mut releases: Vec<GitHubRelease> = serde_json::from_str(&body)
+        .map_err(|e| format!("JSON parse error: {}", e))?;
+
+    if releases.is_empty() {
+        return Err("No releases found".to_string());
+    }
+
+    // Sort by semver descending
+    releases.sort_by(|a, b| {
+        let va = parse_tag_semver(&a.tag_name);
+        let vb = parse_tag_semver(&b.tag_name);
+        vb.cmp(&va)
+    });
+
+    // Find first release with assets
+    for r in &releases {
+        if !r.assets.is_empty() {
+            return Ok(r.clone());
+        }
+    }
+
+    Ok(releases.into_iter().next().unwrap())
+}
+
+fn fetch_latest_release(
+    owner: &str,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<GitHubRelease, String> {
+    match try_get_latest(owner, repo, token) {
+        Ok(release) => Ok(release),
+        Err(_) => fetch_release_list(owner, repo, token),
+    }
+}
+
+// ── Asset matching ─────────────────────────────────────────────
+
+fn find_windows_asset(release: &GitHubRelease) -> Option<&GitHubAsset> {
+    release
+        .assets
+        .iter()
+        .find(|a| {
+            let name = a.name.to_lowercase();
+            name.contains("windows")
+                && (name.contains("x64") || name.contains("x86_64"))
+                && (name.ends_with(".exe") || name.ends_with(".zip"))
+        })
+        .or_else(|| {
+            release
+                .assets
+                .iter()
+                .find(|a| a.name.ends_with(".exe") || a.name.ends_with(".zip"))
+        })
+}
+
+// ── Check update ───────────────────────────────────────────────
+
+pub fn check_update(config: &UpdateConfig) -> Result<UpdateInfo, String> {
+    if config.github_owner.is_empty() || config.github_repo.is_empty() {
+        return Err(
+            "Update repository not configured. Please set Owner/Repo in settings.".to_string(),
+        );
+    }
+
+    let current = get_current_version();
+    let release = fetch_latest_release(
+        &config.github_owner,
+        &config.github_repo,
+        config.github_token.as_deref(),
+    )?;
+
+    let latest_tag = release.tag_name.trim_start_matches('v').to_string();
+
+    let has_update = match (
+        semver::Version::parse(&current),
+        semver::Version::parse(&latest_tag),
+    ) {
+        (Ok(cur), Ok(latest)) => latest > cur,
+        _ => latest_tag != current,
+    };
+
+    let asset = find_windows_asset(&release);
+
+    Ok(UpdateInfo {
+        has_update,
+        current_version: current,
+        latest_version: latest_tag,
+        release_notes: release.body.clone().unwrap_or_default(),
+        download_url: asset.map(|a| a.url.clone()).unwrap_or_default(),
+        asset_name: asset.map(|a| a.name.clone()).unwrap_or_default(),
+        asset_size: asset.map(|a| a.size).unwrap_or(0),
+    })
+}
+
+// ── Download and install ───────────────────────────────────────
+
+pub fn download_and_install(
+    download_url: &str,
+    asset_name: &str,
+    app_dir: &Path,
+    token: Option<&str>,
+) -> Result<(), String> {
+    let temp_dir = std::env::temp_dir().join("switch-node_update");
+    let new_dir = temp_dir.join("new");
+
+    // Clean up previous leftovers
+    if new_dir.exists() {
+        let _ = std::fs::remove_dir_all(&new_dir);
+    }
+    std::fs::create_dir_all(&new_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    let is_exe = asset_name.to_lowercase().ends_with(".exe");
+    let is_api_url = download_url.contains("api.github.com");
+
+    let download_name = if is_exe {
+        "switch-node.exe".to_string()
+    } else {
+        "update.zip".to_string()
+    };
+    let download_path = temp_dir.join(&download_name);
+
+    // ── Download ──
+    log::info!(
+        "[UPDATER] Downloading ({}): {}",
+        if is_exe { "exe" } else { "zip" },
+        download_url
+    );
+
+    let mut dl_req =
+        ureq::get(download_url).header("User-Agent", "SwitchNode-Updater/1.0");
+
+    if is_api_url {
+        dl_req = dl_req.header("Accept", "application/octet-stream");
+    }
+
+    if let Some(t) = token {
+        if !t.is_empty() {
+            dl_req = dl_req.header("Authorization", &format!("Bearer {}", t));
+        }
+    }
+
+    let resp = dl_req
+        .call()
+        .map_err(|e| format!("Download failed: {}", e))?;
+
+    let total = resp
+        .headers()
+        .get("Content-Length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+
+    let mut reader = resp.into_body().into_reader();
+    let mut downloaded: u64 = 0;
+    let mut buf = [0u8; 8192];
+    let mut file = std::fs::File::create(&download_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| format!("Download read error: {}", e))?;
+        if n == 0 {
+            break;
+        }
+        std::io::Write::write_all(&mut file, &buf[..n])
+            .map_err(|e| format!("File write error: {}", e))?;
+        downloaded += n as u64;
+        if let Some(total) = total {
+            let pct = (downloaded * 100) / total;
+            if pct % 10 == 0 {
+                log::info!("[UPDATER] Download progress: {}%", pct);
+            }
+        }
+    }
+    drop(file);
+    log::info!("[UPDATER] Downloaded {} bytes", downloaded);
+
+    if is_exe {
+        let dest = new_dir.join("switch-node.exe");
+        std::fs::rename(&download_path, &dest)
+            .or_else(|_| std::fs::copy(&download_path, &dest).map(|_| ()))
+            .map_err(|e| format!("Failed to move file: {}", e))?;
+    } else {
+        // Extract zip
+        log::info!("[UPDATER] Extracting to: {}", new_dir.display());
+        let zip_file = std::fs::File::open(&download_path)
+            .map_err(|e| format!("Failed to open zip: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(zip_file).map_err(|e| format!("Failed to read zip: {}", e))?;
+
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| format!("Failed to read zip entry: {}", e))?;
+            let name = entry.name().to_string();
+
+            if name.ends_with('/') || name.starts_with("__MACOSX") || name.contains("/.") {
+                continue;
+            }
+
+            let relative = if let Some(pos) = name.find('/') {
+                &name[pos + 1..]
+            } else {
+                &name
+            };
+
+            if relative.is_empty() {
+                continue;
+            }
+
+            let out_path = new_dir.join(relative);
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create dir: {}", e))?;
+            }
+
+            let mut out_file = std::fs::File::create(&out_path)
+                .map_err(|e| format!("Failed to create file {}: {}", out_path.display(), e))?;
+            std::io::copy(&mut entry, &mut out_file)
+                .map_err(|e| format!("Extract error {}: {}", out_path.display(), e))?;
+        }
+
+        let _ = std::fs::remove_file(&download_path);
+        log::info!("[UPDATER] Extraction complete");
+    }
+
+    // ── Spawn batch script ──
+    spawn_update_script(&new_dir, app_dir, is_exe)?;
+
+    Ok(())
+}
+
+// ── Batch script generation ────────────────────────────────────
+
+fn spawn_update_script(new_dir: &Path, app_dir: &Path, is_exe: bool) -> Result<(), String> {
+    let script_dir = new_dir
+        .parent()
+        .expect("new_dir should have a parent (temp/switch-node_update)");
+
+    let script_path = script_dir.join("updater.bat");
+    let app_dir_str = app_dir.to_string_lossy().to_string();
+    let new_dir_str = new_dir.to_string_lossy().to_string();
+
+    let exe_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "switch-node.exe".to_string());
+
+    let script = if is_exe {
+        format!(
+            r#"@echo off
+echo [Updater] Waiting for app to exit...
+timeout /t 3 /nobreak >nul
+
+rem Find downloaded exe (name may differ)
+set SRC=
+for %%f in ("{new}\*.exe") do set SRC=%%f
+if "%SRC%"=="" (
+    echo [Updater] FAILED - no exe found
+    rmdir /S /Q "{new}"
+    del "%~f0"
+    pause
+    exit /b 1
+)
+
+echo [Updater] Source: %SRC%
+echo [Updater] Copying...
+copy /Y "%SRC%" "{app}\{exe}"
+
+if %errorlevel% neq 0 (
+    echo [Updater] FAILED - file locked
+    rmdir /S /Q "{new}"
+    del "%~f0"
+    pause
+    exit /b 1
+)
+
+echo [Updater] OK - restarting...
+start "" "{app}\{exe}"
+rmdir /S /Q "{new}"
+del "%~f0"
+"#,
+            new = &new_dir_str,
+            app = &app_dir_str,
+            exe = &exe_name,
+        )
+    } else {
+        format!(
+            r#"@echo off
+echo Updating switch-node...
+timeout /t 2 /nobreak >nul
+xcopy /E /Y "{new}\*" "{app}\"
+if %errorlevel% neq 0 (
+    echo Update failed.
+    rmdir /S /Q "{new}"
+    del "%~f0"
+    pause
+    exit /b 1
+)
+echo Update complete. Restarting...
+start "" "{app}\{exe}"
+rmdir /S /Q "{new}"
+del "%~f0"
+"#,
+            new = &new_dir_str,
+            app = &app_dir_str,
+            exe = &exe_name,
+        )
+    };
+
+    std::fs::write(&script_path, &script)
+        .map_err(|e| format!("Failed to create update script: {}", e))?;
+
+    log::info!("[UPDATER] Spawning updater script: {}", script_path.display());
+
+    std::process::Command::new("cmd")
+        .args(["/C", script_path.to_str().unwrap_or("updater.bat")])
+        .spawn()
+        .map_err(|e| format!("Failed to start update script: {}", e))?;
+
+    Ok(())
+}

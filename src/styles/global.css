@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  /* Node.js brand colors */
+  --color-node-green: #5fa04e;
+  --color-node-green-dark: #6cc24a;
+  --color-lts-active: #5fa04e;
+  --color-lts-active-dark: #6cc24a;
+  --color-lts-maintenance: #e67e22;
+  --color-lts-maintenance-dark: #f0a04b;
+  --color-eol: #6c757d;
+  --color-eol-dark: #adb5bd;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Disable text selection on titlebar */
+[data-tauri-drag-region] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Allow clicks on interactive elements inside drag region */
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Transitions */
+* {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
