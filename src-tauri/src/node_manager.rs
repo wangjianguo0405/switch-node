@@ -3,6 +3,8 @@ use crate::error::AppError;
 use log::{error, info};
 use serde::Serialize;
 use std::fs;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -434,34 +436,40 @@ pub struct SystemNodeInfo {
 
 /// Try to find Node.js from the system PATH (as a fallback)
 pub fn detect_system_node(config: &AppConfig) -> Option<SystemNodeInfo> {
-    // Run `where node` to find node.exe in PATH
-    let output = Command::new("where")
-        .arg("node")
-        .output()
-        .ok()?;
+    // Scan PATH in pure Rust (no console window)
+    let path_var = std::env::var("PATH").ok()?;
+    let node_root = config.node_root.as_str();
 
-    if !output.status.success() {
-        return None;
-    }
+    #[cfg(windows)]
+    let (exe_name, separator) = ("node.exe", ';');
+    #[cfg(not(windows))]
+    let (exe_name, separator) = ("node", ':');
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let node_root = &config.node_root;
-
-    for line in stdout.lines() {
-        let path = line.trim();
-        if path.is_empty() {
+    for dir in path_var.split(separator) {
+        let candidate = Path::new(dir).join(exe_name);
+        if !candidate.exists() {
             continue;
         }
 
-        let node_path = Path::new(path);
+        let path_str = candidate.to_string_lossy().to_string();
 
-        // Check if this is inside the managed nodeRoot
-        let in_managed = node_path
+        // Check if inside the managed nodeRoot
+        let in_managed = candidate
             .ancestors()
-            .any(|a| a.to_string_lossy() == node_root.as_str());
+            .any(|a| a.to_string_lossy() == node_root);
 
-        // Run node -v to get version
-        if let Ok(version_output) = Command::new(path).arg("-v").output() {
+        // Get version
+        #[cfg(windows)]
+        let version_cmd = std::process::Command::new(&path_str)
+            .arg("-v")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+        #[cfg(not(windows))]
+        let version_cmd = std::process::Command::new(&path_str)
+            .arg("-v")
+            .output();
+
+        if let Ok(version_output) = version_cmd {
             if version_output.status.success() {
                 let version = String::from_utf8_lossy(&version_output.stdout)
                     .trim()
@@ -470,7 +478,7 @@ pub fn detect_system_node(config: &AppConfig) -> Option<SystemNodeInfo> {
                 if !version.is_empty() {
                     return Some(SystemNodeInfo {
                         version,
-                        path: path.to_string(),
+                        path: path_str,
                         in_managed_dir: in_managed,
                     });
                 }
