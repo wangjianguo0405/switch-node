@@ -12,6 +12,7 @@
 - 🌐 支持镜像（官方 / 淘宝 / 自定义）
 - 🎨 LTS / Current / EOL 分类与颜色标识
 - 🌍 简体中文、英文、日文界面
+- 🔄 内置自动更新（通过 GitHub Releases）
 
 ## 截图
 
@@ -37,6 +38,7 @@
 - **nodeRoot** — Node.js 安装目录（默认: `D:\Program Files\nodejs`）
 - **镜像** — 下载源（nodejs.org / npmmirror.com / 自定义）
 - **npm 镜像** — 自动执行 `npm config set registry`
+- **自动更新** — 配置 GitHub Owner/Repo 后自动检查更新
 
 ## 开发
 

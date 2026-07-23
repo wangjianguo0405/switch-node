@@ -12,6 +12,7 @@
 - 🌐 ミラー対応（nodejs.org / npmmirror.com / カスタム）
 - 🎨 LTS / Current / EOL の分類と色分け表示
 - 🌍 日本語・簡体字中国語・英語 UI
+- 🔄 GitHub Releases による自動更新
 
 ## スクリーンショット
 
@@ -37,6 +38,7 @@
 - **nodeRoot** — Node.js のインストール先（デフォルト: `D:\Program Files\nodejs`）
 - **ミラー** — ダウンロード元（nodejs.org / npmmirror.com / カスタム）
 - **npm ミラー** — `npm config set registry` を自動実行
+- **自動更新** — GitHub Owner/Repo を設定すると更新チェックが有効
 
 ## 開発
 

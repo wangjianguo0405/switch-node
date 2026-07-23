@@ -7,12 +7,17 @@
   "keepDownloads": false,
   "downloadDir": "",
   "minVersion": "18.0.0",
-  "showEOL": true,
+  "showEOL": false,
   "prerelease": false,
   "autoRefreshEnv": true,
   "checkUpdates": true,
   "updateIntervalHours": 1,
   "npmMirror": "https://registry.npmjs.org",
   "language": "zh-CN",
-  "theme": "system"
+  "theme": "system",
+  "githubOwner": "",
+  "githubRepo": "",
+  "githubToken": null,
+  "lastCheck": null,
+  "updateIntervalMinutes": 60
 }

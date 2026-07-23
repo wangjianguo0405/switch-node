@@ -42,7 +42,7 @@ Tauri 2.x desktop app: **Rust backend** (`src-tauri/`) + **React 19 / TypeScript
 | `lib.rs` | Entry point, registers Tauri plugins and commands, holds `AppState { config: Mutex<AppConfig> }` |
 | `commands.rs` | Tauri `#[command]` handlers — every frontend invoke maps here |
 | `config.rs` | Config load/save in json/toml/ini (priority: json > toml > ini), portable mode (file next to exe) |
-| `node_manager.rs` | Local version scan, junction create/remove, system PATH update, `is_admin()` check |
+| `node_manager.rs` | Local version scan, junction create/remove, system PATH update, system Node.js detection |
 | `downloader.rs` | Stream download zip → SHA256 verify → extract (strips zip top-level dir) → verify `node -v` |
 | `remote.rs` | Fetch `index.json` from Node.js mirror, classify versions (Current/LTS/Maintenance/EOL), cache |
 | `error.rs` | `AppError` enum (thiserror) with `From` impls for io/json/toml/reqwest → `Serialize` for frontend |
@@ -64,21 +64,23 @@ download_version(version) → emits "download-progress" events
 switch_version(version)    → emits "version-switched" / "switch-error"
 get_active_version / remove_version(version)
 get_app_info / detect_system_node / open_release_notes(version)
+check_update / download_and_install(url, name)
 ```
 
 ### Config file
 
-Portable mode: `config.json` (or `.toml` / `.ini`) lives next to the exe. Auto-generated on first run. Key fields: `nodeRoot`, `symlinkName` (default `"current"`), `mirror`, `architecture`, `npmMirror`, `language`, `theme`.
+Portable mode: `switch-node-config.json` (or `.toml` / `.ini`) lives next to the exe. Auto-generated on first run. Key fields: `nodeRoot`, `symlinkName`, `mirror`, `architecture`, `npmMirror`, `language`, `theme`, `githubOwner`, `githubRepo`, `updateIntervalMinutes`.
 
 ### Auto-update (`src-tauri/src/updater.rs`)
 
 Custom green/portable auto-update via GitHub Releases API (no Tauri updater plugin):
+- `check_update` / `download_and_install` — Tauri commands, also called from frontend
 - `check_update` → fetches latest release, compares semver, returns `UpdateInfo`
 - `download_and_install` → downloads asset to `%TEMP%/switch-node_update/`, spawns `updater.bat`, exits app
 - Batch script waits for process exit → copies new exe → restarts
-- Config stored in `switch-node-config.json` next to exe (separate from main config)
+- Config fields in `switch-node-config.json`: `githubOwner`, `githubRepo`, `githubToken` (optional), `updateIntervalMinutes`
 - Supports optional GitHub token for higher API rate limits
-- `update_interval: 0` = check only at startup
+- `updateIntervalMinutes: 0` = check only at startup
 
 ### Two separate dependency systems
 

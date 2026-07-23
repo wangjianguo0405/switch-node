@@ -12,6 +12,7 @@
 - 🌐 Mirror support (official / Taobao / custom)
 - 🎨 LTS / Current / EOL classification with color labels
 - 🌍 UI in English, Simplified Chinese, and Japanese
+- 🔄 Built-in auto-update via GitHub Releases
 
 ## Screenshots
 
@@ -37,6 +38,7 @@ Download the latest `switch-node.exe` (portable, no install required) from [Rele
 - **nodeRoot** — Where versions are stored (default: `D:\Program Files\nodejs`)
 - **Mirror** — Download source (nodejs.org / npmmirror.com / custom)
 - **npm Mirror** — Auto-sets npm registry via `npm config set registry`
+- **Auto-update** — Configure GitHub Owner/Repo to enable update checks
 
 ## Development
 
