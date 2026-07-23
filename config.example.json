@@ -15,8 +15,8 @@
   "npmMirror": "https://registry.npmjs.org",
   "language": "zh-CN",
   "theme": "system",
-  "githubOwner": "",
-  "githubRepo": "",
+  "githubOwner": "wangjianguo0405",
+  "githubRepo": "switch-node",
   "githubToken": null,
   "lastCheck": null,
   "updateIntervalMinutes": 60
