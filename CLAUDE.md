@@ -31,7 +31,7 @@ Tauri 2.x desktop app: **Rust backend** (`src-tauri/`) + **React 19 / TypeScript
 ### Version switching (key design decisions)
 
 - Uses `cmd /c mklink /J` for the `current` link — directory **junctions** do NOT require admin on Windows, unlike symlinks (`mklink /D`).
-- PATH is written **once, on demand** — `configure_path` in `node_manager.rs` prepends `{nodeRoot}\current` to the machine PATH, falling back to the user PATH when the machine write is refused for lack of admin. It is a no-op when the entry is already there. Day-to-day switches change only the junction target and never touch the registry.
+- PATH is configured **automatically, without asking** — `configure_path` in `node_manager.rs` prepends `{nodeRoot}\current` to the machine PATH, falling back to the user PATH when the machine write is refused for lack of admin. It runs at startup (once a version is active, so `nodeRoot` is settled) and after every successful switch, and is a no-op when the entry is already present. `PathStatus.written` tells the caller whether that particular call changed anything.
 - A system-installed Node.js **silently outranks** the managed one, because machine PATH entries precede user entries. `check_path_status` reports this as `shadowedBy`; the UI then offers an elevated relaunch (`relaunch_as_admin`).
 - Environment writes go through the registry with `ExpandString`, never `[Environment]::SetEnvironmentVariable`, which would expand `%SystemRoot%`-style references and freeze them as literals.
 - No fallback/shim mode exists — junction creation is expected to always succeed on NTFS.

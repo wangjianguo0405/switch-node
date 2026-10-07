@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.1.2
+
+- **PATH is now configured automatically.** The only way to write it was a button in the wizard or the warning strip, which was easy to miss — installs ended up with `node` still unavailable in a terminal. It is now written without asking at startup (once a version is active, so `nodeRoot` is settled) and after every successful switch.
+- Removed the wizard's "environment variables" step — there is nothing left to configure by hand, and a manual step only repeated the problem it was meant to solve.
+- A write that actually changes PATH now says so, so the "close and reopen your terminal" hint appears only when it applies.
+
 ## v1.1.1
 
 - **Fixed the app freezing ("未响应") during auto-update.** The download ran on the main thread and blocked the webview for its whole duration; it now runs on a blocking thread pool.

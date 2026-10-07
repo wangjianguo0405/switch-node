@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useNodeStore } from "../stores/useNodeStore";
 import { t } from "../lib/i18n";
 import { AlertTriangle, Loader2 } from "lucide-react";
@@ -7,9 +6,8 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 /// present but outranked by a system Node.js — either way `node` in a terminal
 /// resolves to the wrong thing (or to nothing at all).
 export function PathWarning() {
-  const { pathStatus, pathBusy, configurePath, relaunchAsAdmin } =
+  const { pathStatus, pathBusy, pathError, configurePath, relaunchAsAdmin } =
     useNodeStore();
-  const [error, setError] = useState<string | null>(null);
 
   if (!pathStatus) return null;
 
@@ -17,13 +15,10 @@ export function PathWarning() {
   const needsConfig = !pathStatus.configured;
   if (!needsConfig && !shadowed) return null;
 
-  const handleConfigure = async () => {
-    setError(null);
-    try {
-      await configurePath();
-    } catch (err) {
-      setError(String(err));
-    }
+  // Failures are recorded in the store's pathError, including those from the
+  // automatic attempt at startup.
+  const handleConfigure = () => {
+    configurePath().catch(() => {});
   };
 
   return (
@@ -50,9 +45,9 @@ export function PathWarning() {
             {t("path.warningExtra", { path: shadowed })}
           </p>
         )}
-        {error && (
+        {pathError && (
           <p className="text-red-700 dark:text-red-400 mt-0.5 break-all">
-            {t("path.adminRequired")} {error}
+            {t("path.adminRequired")} {pathError}
           </p>
         )}
       </div>
@@ -75,7 +70,7 @@ export function PathWarning() {
             {t("path.relaunchAdmin")}
           </button>
         )}
-        {needsConfig && error && (
+        {needsConfig && pathError && (
           <button
             onClick={relaunchAsAdmin}
             className="px-2.5 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"

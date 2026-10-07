@@ -68,9 +68,6 @@
   "path.relaunchAdmin": "管理者として再起動",
   "path.shadowedTitle": "システム版 Node.js が本ツールを上書きします",
   "path.shadowedDesc": "{path} が {linkPath} より前に PATH に登録されているため、バージョン切替が反映されません。システム版 Node.js をアンインストールするか、本アプリを管理者として再起動して再設定してください。",
-  "path.step4": "環境変数の設定",
-  "path.step4Desc": "Node.js を PATH に追加すると、ターミナルから node と npm を直接実行できます。",
-  "path.alreadyOk": "PATH は設定済みです — 変更は不要です",
 
   "settings.title": "⚙ 設定",
   "settings.paths": "パス",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/open-tauri/main/docs/.vitepress/public/tauri-v2.json",
   "productName": "Node.js 版本切换器",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "identifier": "com.switch-node.app",
   "build": {
     "frontendDist": "../dist",

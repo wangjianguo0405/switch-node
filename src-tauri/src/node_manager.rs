@@ -292,6 +292,10 @@ pub struct PathStatus {
     /// A `node.exe` outside `nodeRoot` that precedes our entry and would
     /// therefore win. `None` when nothing shadows us.
     pub shadowed_by: Option<String>,
+    /// Whether the call that produced this status actually changed the
+    /// environment. Always `false` from [`check_path_status`], which only reads;
+    /// [`configure_path`] sets it when it had to write.
+    pub written: bool,
 }
 
 #[derive(Deserialize)]
@@ -399,6 +403,7 @@ fn build_path_status(config: &AppConfig, env: &RawPathEnvironment) -> PathStatus
         link_path: link_path.to_string_lossy().to_string(),
         is_admin: env.admin,
         shadowed_by,
+        written: false,
     }
 }
 
@@ -455,9 +460,12 @@ pub fn configure_path(config: &AppConfig) -> Result<PathStatus, AppError> {
     }
 }
 
+/// Announce the change, then re-read so the caller sees the post-write state.
 fn finish_path_write(config: &AppConfig) -> Result<PathStatus, AppError> {
     broadcast_environment_change();
-    check_path_status(config)
+    let mut status = check_path_status(config)?;
+    status.written = true;
+    Ok(status)
 }
 
 /// Prepend the link to PATH in the given registry scope.

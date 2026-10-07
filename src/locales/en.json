@@ -68,9 +68,6 @@
   "path.relaunchAdmin": "Restart as administrator",
   "path.shadowedTitle": "The system Node.js overrides this tool",
   "path.shadowedDesc": "{path} comes before {linkPath} on your PATH, so switching versions has no effect. Uninstall the system Node.js, or restart this app as administrator and configure again.",
-  "path.step4": "Configure environment variables",
-  "path.step4Desc": "Add Node.js to PATH so you can run node and npm directly from a terminal.",
-  "path.alreadyOk": "PATH is already configured — nothing to change",
 
   "settings.title": "⚙ Settings",
   "settings.paths": "Paths",

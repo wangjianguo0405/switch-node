@@ -95,6 +95,8 @@ export interface PathStatus {
   linkPath: string;
   isAdmin: boolean;
   shadowedBy: string | null;
+  /** True only when the call actually changed PATH, not when it was already set */
+  written: boolean;
 }
 
 // ── UI State ──

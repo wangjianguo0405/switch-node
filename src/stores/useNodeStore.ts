@@ -14,6 +14,10 @@ import { setLanguage, t } from "../lib/i18n";
 import { listen } from "@tauri-apps/api/event";
 import { exit } from "@tauri-apps/plugin-process";
 
+function pathScopeLabel(scope: PathStatus["scope"]): string {
+  return scope === "machine" ? t("path.scopeMachine") : t("path.scopeUser");
+}
+
 interface NodeStore {
   // ── Config ──
   config: AppConfig | null;
@@ -31,6 +35,7 @@ interface NodeStore {
   // ── PATH ──
   pathStatus: PathStatus | null;
   pathBusy: boolean;
+  pathError: string | null;
 
   // ── Remote status ──
   remoteLoading: boolean;
@@ -82,6 +87,7 @@ interface NodeStore {
 
   // ── PATH Actions ──
   checkPath: () => Promise<void>;
+  ensurePath: () => Promise<void>;
   configurePath: () => Promise<void>;
   relaunchAsAdmin: () => Promise<void>;
 
@@ -102,6 +108,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   systemNode: null,
   pathStatus: null,
   pathBusy: false,
+  pathError: null,
   remoteLoading: false,
   remoteError: null,
   isOffline: false,
@@ -155,9 +162,14 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         // Non-critical, ignore
       }
 
-      // Advisory only, so it runs in the background instead of holding up the
-      // loading screen — the warning strip appears once the answer arrives
-      get().checkPath();
+      // PATH only matters once a version is active, and nodeRoot is settled by
+      // then — so this is also the safe moment to write it without asking.
+      // Runs in the background rather than holding up the loading screen.
+      if (active) {
+        get().ensurePath();
+      } else {
+        get().checkPath();
+      }
 
       // Check if wizard needed (only if no local AND no system node)
       if (local.length === 0 && !get().systemNode) {
@@ -275,6 +287,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     try {
       await commands.switchVersion(version);
       await get().refreshLocal();
+      // `current` exists now, so a missing PATH entry is worth fixing right away
+      await get().ensurePath();
     } catch (err) {
       set({
         statusType: "error",
@@ -361,22 +375,53 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
   },
 
+  // Adds `{nodeRoot}\current` to PATH if it is missing, without asking. Only
+  // runs once a version is active, so nodeRoot is settled by then. Stays quiet
+  // when there was nothing to do.
+  ensurePath: async () => {
+    try {
+      const pathStatus = await commands.configurePath();
+      set({ pathStatus, pathError: null });
+      if (pathStatus.written) {
+        set({
+          statusType: pathStatus.shadowedBy ? "error" : "ok",
+          statusMessage: t("path.configured", {
+            scope: pathScopeLabel(pathStatus.scope),
+          }),
+        });
+      }
+    } catch (err) {
+      // Normally means the write needs elevation. Re-read the status and leave
+      // the warning strip up with the error, so the user can retry or relaunch.
+      set({
+        pathError: String(err),
+        statusType: "error",
+        statusMessage: `${err}`,
+      });
+      get().checkPath();
+    }
+  },
+
   configurePath: async () => {
     set({ pathBusy: true });
     try {
       const pathStatus = await commands.configurePath();
-      const scopeLabel =
-        pathStatus.scope === "machine"
-          ? t("path.scopeMachine")
-          : t("path.scopeUser");
       set({
         pathStatus,
+        pathError: null,
         pathBusy: false,
         statusType: pathStatus.shadowedBy ? "error" : "ok",
-        statusMessage: t("path.configured", { scope: scopeLabel }),
+        statusMessage: t("path.configured", {
+          scope: pathScopeLabel(pathStatus.scope),
+        }),
       });
     } catch (err) {
-      set({ pathBusy: false, statusType: "error", statusMessage: `${err}` });
+      set({
+        pathBusy: false,
+        pathError: String(err),
+        statusType: "error",
+        statusMessage: `${err}`,
+      });
       throw err;
     }
   },

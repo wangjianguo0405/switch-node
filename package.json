@@ -1,6 +1,6 @@
 {
   "name": "switch-node",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Node.js 版本切换器 — 桌面应用",
   "private": true,
   "type": "module",
