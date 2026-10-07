@@ -50,6 +50,7 @@ pub fn run() {
             commands::set_config,
             commands::scan_local_versions,
             commands::fetch_remote_versions,
+            commands::get_version_detail,
             commands::download_version,
             commands::switch_version,
             commands::get_active_version,
@@ -57,6 +58,9 @@ pub fn run() {
             commands::open_release_notes,
             commands::get_app_info,
             commands::detect_system_node,
+            commands::get_path_status,
+            commands::configure_path,
+            commands::relaunch_as_admin,
             // Update commands
             check_update,
             download_and_install,

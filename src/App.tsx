@@ -4,6 +4,7 @@ import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { VersionDetail } from "./components/VersionDetail";
 import { StatusBar } from "./components/StatusBar";
+import { PathWarning } from "./components/PathWarning";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SetupWizard } from "./components/SetupWizard";
 import { DownloadProgress } from "./components/DownloadProgress";
@@ -80,6 +81,9 @@ function App() {
           <VersionDetail />
         </div>
       </div>
+
+      {/* PATH not configured — node will not resolve in a terminal */}
+      <PathWarning />
 
       {/* Status Bar */}
       <StatusBar />

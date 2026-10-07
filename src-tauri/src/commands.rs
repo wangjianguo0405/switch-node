@@ -1,7 +1,7 @@
 use crate::config::{self, AppConfig};
 use crate::downloader;
 use crate::error::AppError;
-use crate::node_manager::{self, LocalVersion, SystemNodeInfo};
+use crate::node_manager::{self, LocalVersion, PathStatus, SystemNodeInfo};
 use crate::remote::{self, RemoteVersion};
 use crate::AppState;
 use log::info;
@@ -101,6 +101,22 @@ pub async fn fetch_remote_versions(
             }
             other => other.to_string(),
         })
+}
+
+/// Look up metadata for one exact version, including patches that are not the
+/// latest of their major line (so not present in the remote version list)
+#[command]
+pub async fn get_version_detail(
+    state: ConfigState<'_>,
+    version: String,
+) -> Result<RemoteVersion, String> {
+    let config = {
+        let guard = state.config.lock().map_err(|e| e.to_string())?;
+        guard.clone()
+    };
+    remote::fetch_version_detail(&config, &version)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Download and install a version with progress events
@@ -204,6 +220,26 @@ pub fn open_release_notes(version: String) -> Result<(), String> {
 pub fn detect_system_node(state: ConfigState<'_>) -> Result<Option<SystemNodeInfo>, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
     Ok(node_manager::detect_system_node(&config))
+}
+
+/// Report whether `{nodeRoot}\current` is on PATH, and what would shadow it
+#[command]
+pub fn get_path_status(state: ConfigState<'_>) -> Result<PathStatus, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    node_manager::check_path_status(&config).map_err(|e| e.to_string())
+}
+
+/// Add `{nodeRoot}\current` to PATH — machine scope first, user scope on refusal
+#[command]
+pub fn configure_path(state: ConfigState<'_>) -> Result<PathStatus, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    node_manager::configure_path(&config).map_err(|e| e.to_string())
+}
+
+/// Relaunch the app elevated, so the machine PATH becomes writable
+#[command]
+pub fn relaunch_as_admin() -> Result<(), String> {
+    node_manager::relaunch_as_admin().map_err(|e| e.to_string())
 }
 
 /// Get application info

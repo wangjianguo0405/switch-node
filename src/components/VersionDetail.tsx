@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { useNodeStore } from "../stores/useNodeStore";
 import { t } from "../lib/i18n";
-import { openReleaseNotes } from "../lib/commands";
+import { getVersionDetail, openReleaseNotes } from "../lib/commands";
+import type { RemoteVersion } from "../lib/types";
 import { ExternalLink, Download, RefreshCw, Trash2 } from "lucide-react";
 
 export function VersionDetail() {
@@ -14,6 +16,35 @@ export function VersionDetail() {
     removeVersion,
   } = useNodeStore();
 
+  // Find version data
+  const local = localVersions.find((v) => v.version === selectedVersion);
+  const remote = remoteVersions.find((v) => v.version === selectedVersion);
+
+  // The remote list only carries each major line's latest patch, so an installed
+  // older patch has no metadata here — fetch it on demand.
+  const [fetchedDetail, setFetchedDetail] = useState<RemoteVersion | null>(null);
+  const needsDetail = !!selectedVersion && !remote && !!local;
+
+  useEffect(() => {
+    setFetchedDetail(null);
+    if (!needsDetail || !selectedVersion) return;
+
+    let cancelled = false;
+    getVersionDetail(selectedVersion)
+      .then((detail) => {
+        if (!cancelled) setFetchedDetail(detail);
+      })
+      .catch(() => {
+        // Non-critical: panel just stays without the metadata table
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsDetail, selectedVersion]);
+
+  const meta =
+    remote ?? (fetchedDetail?.version === selectedVersion ? fetchedDetail : null);
+
   if (!selectedVersion) {
     return (
       <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
@@ -25,10 +56,7 @@ export function VersionDetail() {
     );
   }
 
-  // Find version data
-  const local = localVersions.find((v) => v.version === selectedVersion);
-  const remote = remoteVersions.find((v) => v.version === selectedVersion);
-  const versionData = local || remote;
+  const versionData = local || meta;
   const isInstalled = !!local;
   const isActive = local?.isActive ?? false;
   const isCorrupted = local?.isCorrupted ?? false;
@@ -87,12 +115,12 @@ export function VersionDetail() {
             {t("version.active")}
           </span>
         )}
-        {remote && remote.isLatest && (
+        {meta?.isLatest && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-medium">
             Latest
           </span>
         )}
-        {remote && remote.isLatestLts && (
+        {meta?.isLatestLts && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400 font-medium">
             Latest LTS
           </span>
@@ -100,54 +128,54 @@ export function VersionDetail() {
       </div>
 
       {/* Status badges */}
-      {remote && (
+      {meta && (
         <div className="mb-4">
           <span
             className={`inline-block text-xs px-2.5 py-1 rounded-md font-medium text-white ${
-              remote.statusColor === "current"
+              meta.statusColor === "current"
                 ? "bg-node-green"
-                : remote.statusColor === "maintenance"
+                : meta.statusColor === "maintenance"
                   ? "bg-lts-maintenance"
                   : "bg-eol"
             }`}
           >
-            {remote.statusLabel}
+            {meta.statusLabel}
           </span>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-            {remote.statusDescription}
+            {meta.statusDescription}
           </p>
         </div>
       )}
 
       {/* Details table */}
       <div className="space-y-2 mb-6">
-        {remote && (
+        {meta && (
           <>
             <DetailRow
               label={t("detail.versionNum")}
-              value={remote.version}
+              value={meta.version}
             />
             <DetailRow
               label={t("detail.releaseDate")}
-              value={remote.date}
+              value={meta.date}
             />
             <DetailRow
               label={t("detail.ltsCodename")}
-              value={remote.lts || "-"}
+              value={meta.lts || "-"}
             />
-            <DetailRow label={t("detail.npmVersion")} value={remote.npm} />
-            <DetailRow label={t("detail.v8Version")} value={remote.v8} />
+            <DetailRow label={t("detail.npmVersion")} value={meta.npm} />
+            <DetailRow label={t("detail.v8Version")} value={meta.v8} />
             <DetailRow
               label={t("detail.opensslVersion")}
-              value={remote.openssl}
+              value={meta.openssl}
             />
             <DetailRow
               label={t("detail.downloadSize")}
-              value={`~${remote.downloadSizeMb} MB`}
+              value={`~${meta.downloadSizeMb} MB`}
             />
             <DetailRow
               label={t("detail.status")}
-              value={remote.statusDescription}
+              value={meta.statusDescription}
             />
           </>
         )}
@@ -198,7 +226,7 @@ export function VersionDetail() {
           </button>
         )}
 
-        {remote && (
+        {meta && (
           <button
             onClick={handleOpenNotes}
             className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md text-sm font-medium transition-colors"

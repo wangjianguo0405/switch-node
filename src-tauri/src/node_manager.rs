@@ -1,11 +1,11 @@
 use crate::config::AppConfig;
 use crate::error::AppError;
 use log::{error, info};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,44 +155,6 @@ pub fn switch_version(config: &AppConfig, version: &str) -> Result<(), AppError>
     perform_switch(config, version)
 }
 
-/// Check if current process has administrator privileges (Windows)
-pub fn is_admin() -> bool {
-    #[cfg(windows)]
-    {
-        // Use CheckTokenMembership via winapi-like approach
-        // For simplicity, try to create a test symlink and check if it succeeds
-        // A proper implementation would use OpenProcessToken + CheckTokenMembership
-        let test_path = std::env::temp_dir().join("switch-node-admin-test");
-        let test_target = std::env::temp_dir().join("switch-node-admin-test-target");
-
-        // Try creating a directory symlink — only admins can do this on Windows
-        let result = std::process::Command::new("cmd")
-            .args([
-                "/c",
-                "mklink",
-                "/D",
-                &test_path.to_string_lossy(),
-                &test_target.to_string_lossy(),
-            ])
-            .output();
-
-        // Cleanup
-        let _ = fs::remove_dir(&test_path);
-        let _ = fs::remove_dir(&test_target);
-
-        match result {
-            Ok(output) => output.status.success(),
-            Err(_) => false,
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        // On Unix, check euid
-        unsafe { libc::geteuid() == 0 }
-    }
-}
-
 /// Perform junction-based switch.
 ///
 /// Uses `cmd /c rmdir` + `mklink /J` to replace the junction atomically.
@@ -302,72 +264,323 @@ fn broadcast_environment_change() {
     // no-op on non-Windows
 }
 
-/// Update the Machine-level PATH environment variable.
+// ── PATH configuration ───────────────────────────────────────────────────────
+//
+// `{nodeRoot}\current` has to be on PATH for `node` to resolve in a terminal.
+// It is written once, here, and never touched again — day-to-day version
+// switches only re-point the junction (see `perform_switch`).
+
+/// Machine entries precede user entries in the effective PATH, so only a
+/// machine entry can outrank an already-installed Node.js.
+const MACHINE_ENV_KEY: (&str, &str) = (
+    "LocalMachine",
+    r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+);
+const USER_ENV_KEY: (&str, &str) = ("CurrentUser", "Environment");
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathStatus {
+    /// `{nodeRoot}\current` is present in the machine or user PATH.
+    pub configured: bool,
+    /// Which PATH it was found in: `"machine"`, `"user"`, or `None`.
+    pub scope: Option<String>,
+    /// The directory that needs to be on PATH, for display in the UI.
+    pub link_path: String,
+    /// The current process is elevated, so the machine PATH is writable.
+    pub is_admin: bool,
+    /// A `node.exe` outside `nodeRoot` that precedes our entry and would
+    /// therefore win. `None` when nothing shadows us.
+    pub shadowed_by: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawPathEnvironment {
+    machine: String,
+    user: String,
+    admin: bool,
+}
+
+fn current_link_path(config: &AppConfig) -> PathBuf {
+    Path::new(&config.node_root).join(&config.symlink_name)
+}
+
+/// Windows paths are case-insensitive and tolerate a trailing separator.
+fn normalize_path_entry(entry: &str) -> String {
+    entry.trim().trim_end_matches('\\').to_lowercase()
+}
+
+fn split_path(value: &str) -> Vec<String> {
+    value
+        .split(';')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// Read both PATH scopes straight out of the registry.
 ///
-/// This is a ONE-TIME setup operation called during the initialization wizard.
-/// After this, day-to-day version switches via [`perform_switch`] only update
-/// the junction target — PATH is never touched again.
-pub fn update_system_path(node_root: &Path, symlink_name: &str) -> Result<(), AppError> {
-    // Use PowerShell to update Machine PATH
-    let current_path = node_root.join(symlink_name);
-    let ps_script = format!(
-        r#"
-$nodeRoot = "{}"
-$currentPath = "{}"
-$symlinkName = "{}"
+/// The process environment is deliberately not used: it is a snapshot taken at
+/// launch, so it goes stale the moment we write, and it cannot say which scope
+/// an entry came from.
+fn read_path_environment() -> Result<RawPathEnvironment, AppError> {
+    const SCRIPT: &str = r#"
+$m = [Environment]::GetEnvironmentVariable("PATH", "Machine"); if ($null -eq $m) { $m = "" }
+$u = [Environment]::GetEnvironmentVariable("PATH", "User"); if ($null -eq $u) { $u = "" }
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+[pscustomobject]@{ machine = $m; user = $u; admin = $admin } | ConvertTo-Json -Compress
+"#;
 
-try {{
-    # Read Machine PATH
-    $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
-    if ($null -eq $machinePath) {{ $machinePath = "" }}
+    let mut cmd = Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SCRIPT,
+    ]);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-    # Split into entries
-    $paths = $machinePath -split ';' | Where-Object {{ $_ -ne "" }}
+    let output = cmd.output()?;
+    if !output.status.success() {
+        return Err(AppError::Process(format!(
+            "Failed to read PATH: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
 
-    # Remove any existing version-specific paths
-    $paths = $paths | Where-Object {{
-        $_ -notmatch [regex]::Escape($nodeRoot) + "\\\d+\.\d+\.\d+$"
-    }}
+    serde_json::from_slice(&output.stdout)
+        .map_err(|e| AppError::Parse(format!("Failed to parse PATH environment: {}", e)))
+}
 
-    # Ensure current symlink path is present
-    if ($currentPath -notin $paths) {{
-        $paths = @($currentPath) + $paths
-    }}
+fn build_path_status(config: &AppConfig, env: &RawPathEnvironment) -> PathStatus {
+    let link_path = current_link_path(config);
+    let link_norm = normalize_path_entry(&link_path.to_string_lossy());
+    let root_norm = normalize_path_entry(&config.node_root);
 
-    # Save back
-    $newPath = $paths -join ';'
-    [Environment]::SetEnvironmentVariable("PATH", $newPath, "Machine")
-    Write-Output "OK"
-}} catch {{
-    Write-Error $_.Exception.Message
-    exit 1
-}}
-"#,
-        node_root.display(),
-        current_path.display(),
-        symlink_name
+    let machine = split_path(&env.machine);
+    let user = split_path(&env.user);
+
+    let in_machine = machine.iter().any(|e| normalize_path_entry(e) == link_norm);
+    let in_user = user.iter().any(|e| normalize_path_entry(e) == link_norm);
+    let scope = if in_machine {
+        Some("machine".to_string())
+    } else if in_user {
+        Some("user".to_string())
+    } else {
+        None
+    };
+
+    // Walk the effective PATH in order and stop at our own entry: any node.exe
+    // before that point is what actually runs.
+    let mut shadowed_by = None;
+    let root_prefix = format!("{}\\", root_norm);
+    for entry in machine.iter().chain(user.iter()) {
+        let norm = normalize_path_entry(entry);
+        if norm == link_norm {
+            break;
+        }
+        if norm == root_norm || norm.starts_with(&root_prefix) {
+            continue; // inside our own nodeRoot, not a foreign install
+        }
+        let candidate = Path::new(entry).join("node.exe");
+        if candidate.exists() {
+            shadowed_by = Some(candidate.to_string_lossy().to_string());
+            break;
+        }
+    }
+
+    PathStatus {
+        configured: scope.is_some(),
+        scope,
+        link_path: link_path.to_string_lossy().to_string(),
+        is_admin: env.admin,
+        shadowed_by,
+    }
+}
+
+/// Report whether `{nodeRoot}\current` is on PATH and whether anything would
+/// shadow it. Read-only — never modifies the environment.
+pub fn check_path_status(config: &AppConfig) -> Result<PathStatus, AppError> {
+    let env = read_path_environment()?;
+    Ok(build_path_status(config, &env))
+}
+
+/// Add `{nodeRoot}\current` to PATH, once.
+///
+/// Prefers the machine PATH so the entry outranks an already-installed Node.js,
+/// and falls back to the user PATH (which needs no elevation) when that is
+/// refused. Writes nothing if the entry is already there.
+pub fn configure_path(config: &AppConfig) -> Result<PathStatus, AppError> {
+    let link_path = current_link_path(config);
+
+    let existing = check_path_status(config)?;
+    if existing.configured {
+        info!(
+            "{} is already on PATH ({} scope), leaving it alone",
+            existing.link_path,
+            existing.scope.as_deref().unwrap_or("unknown")
+        );
+        return Ok(existing);
+    }
+
+    let machine_err = match write_path_entry(config, &link_path, MACHINE_ENV_KEY.0, MACHINE_ENV_KEY.1)
+    {
+        Ok(()) => return finish_path_write(config),
+        Err(e) => e,
+    };
+    info!(
+        "Machine PATH write failed ({}), falling back to the user PATH",
+        machine_err
     );
 
-    let output = Command::new("powershell")
+    match write_path_entry(config, &link_path, USER_ENV_KEY.0, USER_ENV_KEY.1) {
+        Ok(()) => finish_path_write(config),
+        Err(user_err) => {
+            error!("User PATH write failed too: {}", user_err);
+            if matches!(machine_err, AppError::AdminRequired) {
+                Err(AppError::AdminRequired)
+            } else {
+                Err(machine_err)
+            }
+        }
+    }
+}
+
+fn finish_path_write(config: &AppConfig) -> Result<PathStatus, AppError> {
+    broadcast_environment_change();
+    check_path_status(config)
+}
+
+/// Prepend the link to PATH in the given registry scope.
+///
+/// Goes through the .NET registry API rather than PowerShell's registry
+/// provider, for two reasons. `Get-ItemProperty` expands `%SystemRoot%`-style
+/// references on read, so writing its result back would freeze every variable
+/// in the user's PATH into a literal path; `DoNotExpandEnvironmentNames` keeps
+/// the value as found. And a denied write is reported by exit code rather than
+/// by message, since the registry error text is localized.
+fn write_path_entry(
+    config: &AppConfig,
+    link_path: &Path,
+    hive: &str,
+    sub_key: &str,
+) -> Result<(), AppError> {
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = "Stop"
+$link     = $env:SWITCH_NODE_LINK
+$root     = $env:SWITCH_NODE_ROOT
+$hiveName = $env:SWITCH_NODE_HIVE
+$subKey   = $env:SWITCH_NODE_SUBKEY
+
+try {
+    $hive = if ($hiveName -eq "LocalMachine") {
+        [Microsoft.Win32.Registry]::LocalMachine
+    } else {
+        [Microsoft.Win32.Registry]::CurrentUser
+    }
+
+    $key = $hive.OpenSubKey($subKey, $true)
+    if ($null -eq $key) { $key = $hive.CreateSubKey($subKey) }
+
+    $raw = $key.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    if ($null -eq $raw) { $raw = "" }
+
+    $entries = $raw -split ';' | Where-Object { $_.Trim() -ne "" }
+
+    # Drop per-version directories left behind by older builds of this app
+    $versionPattern = '^' + [regex]::Escape($root) + '\\\d+\.\d+\.\d+$'
+    $entries = $entries | Where-Object { $_ -notmatch $versionPattern }
+
+    # Drop any existing copy of our own entry so it does not get duplicated
+    $linkTrimmed = $link.TrimEnd('\')
+    $entries = $entries | Where-Object { $_.Trim().TrimEnd('\') -ine $linkTrimmed }
+
+    # Prepend: a later entry loses to an earlier node.exe
+    $entries = @($link) + $entries
+
+    $key.SetValue("Path", ($entries -join ';'), [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    $key.Close()
+    Write-Output "OK"
+} catch [System.Security.SecurityException] {
+    exit 2
+} catch [System.UnauthorizedAccessException] {
+    exit 2
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+"#;
+
+    let mut cmd = Command::new("powershell");
+    cmd.env("SWITCH_NODE_LINK", link_path.as_os_str())
+        .env("SWITCH_NODE_ROOT", &config.node_root)
+        .env("SWITCH_NODE_HIVE", hive)
+        .env("SWITCH_NODE_SUBKEY", sub_key)
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            &ps_script,
-        ])
-        .output()?;
+            SCRIPT,
+        ]);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
+    let output = cmd.output()?;
+
+    // The script exits 2 for a refused write, whatever the system language
+    if output.status.code() == Some(2) {
+        return Err(AppError::AdminRequired);
+    }
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        error!("Failed to update system PATH: {}", stderr);
         return Err(AppError::Process(format!(
-            "Failed to update system PATH: {}",
-            stderr
+            "Failed to write {}\\{}: {}",
+            hive,
+            sub_key,
+            String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
 
+    info!("Added {} to {}\\{}", link_path.display(), hive, sub_key);
+    Ok(())
+}
+
+/// Relaunch this executable elevated, so the machine PATH becomes writable.
+///
+/// The relaunch cannot happen directly: the single-instance plugin would let the
+/// new copy hand its arguments to the still-running original and quit. A
+/// detached helper waits for this process to exit first — the same trick
+/// `updater.rs` uses for its update batch script.
+pub fn relaunch_as_admin() -> Result<(), AppError> {
+    const SCRIPT: &str = r#"
+$p = Get-Process -Id $env:SWITCH_NODE_PID -ErrorAction SilentlyContinue
+if ($p) { $p.WaitForExit() }
+Start-Process -FilePath $env:SWITCH_NODE_EXE -Verb RunAs
+"#;
+
+    let exe = std::env::current_exe()?;
+
+    let mut cmd = Command::new("powershell");
+    cmd.env("SWITCH_NODE_PID", std::process::id().to_string())
+        .env("SWITCH_NODE_EXE", exe.as_os_str())
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            SCRIPT,
+        ]);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    cmd.spawn()?;
+    info!("Elevation helper launched; waiting for this instance to exit");
     Ok(())
 }
 

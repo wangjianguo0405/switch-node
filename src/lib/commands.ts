@@ -5,6 +5,7 @@ import type {
   RemoteVersion,
   AppInfo,
   SystemNodeInfo,
+  PathStatus,
   UpdateInfo,
 } from "./types";
 
@@ -28,6 +29,13 @@ export async function fetchRemoteVersions(
   force = false
 ): Promise<RemoteVersion[]> {
   return invoke<RemoteVersion[]>("fetch_remote_versions", { force });
+}
+
+// Metadata for one exact version, including patches not in the remote list
+export async function getVersionDetail(
+  version: string
+): Promise<RemoteVersion> {
+  return invoke<RemoteVersion>("get_version_detail", { version });
 }
 
 // ── Download ──
@@ -59,6 +67,19 @@ export async function getAppInfo(): Promise<AppInfo> {
 
 export async function detectSystemNode(): Promise<SystemNodeInfo | null> {
   return invoke<SystemNodeInfo | null>("detect_system_node");
+}
+
+// ── PATH ──
+export async function getPathStatus(): Promise<PathStatus> {
+  return invoke<PathStatus>("get_path_status");
+}
+
+export async function configurePath(): Promise<PathStatus> {
+  return invoke<PathStatus>("configure_path");
+}
+
+export async function relaunchAsAdmin(): Promise<void> {
+  return invoke<void>("relaunch_as_admin");
 }
 
 // ── Update ──

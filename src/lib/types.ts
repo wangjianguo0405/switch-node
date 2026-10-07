@@ -88,6 +88,15 @@ export interface SystemNodeInfo {
   inManagedDir: boolean;
 }
 
+// ── PATH configuration ──
+export interface PathStatus {
+  configured: boolean;
+  scope: "machine" | "user" | null;
+  linkPath: string;
+  isAdmin: boolean;
+  shadowedBy: string | null;
+}
+
 // ── UI State ──
 // ── Update ──
 export interface UpdateInfo {

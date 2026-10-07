@@ -5,12 +5,14 @@ import type {
   RemoteVersion,
   DownloadProgress,
   SystemNodeInfo,
+  PathStatus,
   UpdateInfo,
   UpdateStatus,
 } from "../lib/types";
 import * as commands from "../lib/commands";
-import { setLanguage } from "../lib/i18n";
+import { setLanguage, t } from "../lib/i18n";
 import { listen } from "@tauri-apps/api/event";
+import { exit } from "@tauri-apps/plugin-process";
 
 interface NodeStore {
   // ── Config ──
@@ -25,6 +27,10 @@ interface NodeStore {
 
   // ── System Node ──
   systemNode: SystemNodeInfo | null;
+
+  // ── PATH ──
+  pathStatus: PathStatus | null;
+  pathBusy: boolean;
 
   // ── Remote status ──
   remoteLoading: boolean;
@@ -74,6 +80,11 @@ interface NodeStore {
   setWizardStep: (step: number) => void;
   clearDownloadProgress: () => void;
 
+  // ── PATH Actions ──
+  checkPath: () => Promise<void>;
+  configurePath: () => Promise<void>;
+  relaunchAsAdmin: () => Promise<void>;
+
   // ── Update Actions ──
   handleCheckUpdate: () => Promise<void>;
   handleDownloadUpdate: () => Promise<void>;
@@ -89,6 +100,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   remoteVersions: [],
   activeVersion: null,
   systemNode: null,
+  pathStatus: null,
+  pathBusy: false,
   remoteLoading: false,
   remoteError: null,
   isOffline: false,
@@ -141,6 +154,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       } catch {
         // Non-critical, ignore
       }
+
+      // Advisory only, so it runs in the background instead of holding up the
+      // loading screen — the warning strip appears once the answer arrives
+      get().checkPath();
 
       // Check if wizard needed (only if no local AND no system node)
       if (local.length === 0 && !get().systemNode) {
@@ -328,6 +345,46 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   setSettingsOpen: (v) => set({ settingsOpen: v }),
   setWizardStep: (step) => set({ wizardStep: step }),
   clearDownloadProgress: () => set({ downloadProgress: null }),
+
+  // ── PATH Actions ──
+  checkPath: async () => {
+    try {
+      const pathStatus = await commands.getPathStatus();
+      set({ pathStatus });
+    } catch (err) {
+      console.error("Failed to read PATH status:", err);
+    }
+  },
+
+  configurePath: async () => {
+    set({ pathBusy: true });
+    try {
+      const pathStatus = await commands.configurePath();
+      const scopeLabel =
+        pathStatus.scope === "machine"
+          ? t("path.scopeMachine")
+          : t("path.scopeUser");
+      set({
+        pathStatus,
+        pathBusy: false,
+        statusType: pathStatus.shadowedBy ? "error" : "ok",
+        statusMessage: t("path.configured", { scope: scopeLabel }),
+      });
+    } catch (err) {
+      set({ pathBusy: false, statusType: "error", statusMessage: `${err}` });
+      throw err;
+    }
+  },
+
+  relaunchAsAdmin: async () => {
+    try {
+      await commands.relaunchAsAdmin();
+      await exit(0);
+    } catch (err) {
+      set({ statusType: "error", statusMessage: `${err}` });
+      throw err;
+    }
+  },
 
   // ── Update Actions ──
   handleCheckUpdate: async () => {

@@ -31,7 +31,9 @@ Tauri 2.x desktop app: **Rust backend** (`src-tauri/`) + **React 19 / TypeScript
 ### Version switching (key design decisions)
 
 - Uses `cmd /c mklink /J` for the `current` link — directory **junctions** do NOT require admin on Windows, unlike symlinks (`mklink /D`).
-- PATH is only modified **once** during the setup wizard (`update_system_path` in `node_manager.rs`). After `{nodeRoot}\current` is in the system PATH, day-to-day switches change only the junction target and never touch the registry.
+- PATH is written **once, on demand** — `configure_path` in `node_manager.rs` prepends `{nodeRoot}\current` to the machine PATH, falling back to the user PATH when the machine write is refused for lack of admin. It is a no-op when the entry is already there. Day-to-day switches change only the junction target and never touch the registry.
+- A system-installed Node.js **silently outranks** the managed one, because machine PATH entries precede user entries. `check_path_status` reports this as `shadowedBy`; the UI then offers an elevated relaunch (`relaunch_as_admin`).
+- Environment writes go through the registry with `ExpandString`, never `[Environment]::SetEnvironmentVariable`, which would expand `%SystemRoot%`-style references and freeze them as literals.
 - No fallback/shim mode exists — junction creation is expected to always succeed on NTFS.
 - `npmMirror` config change triggers `npm config set registry <url>` automatically in `set_config`.
 
@@ -42,7 +44,7 @@ Tauri 2.x desktop app: **Rust backend** (`src-tauri/`) + **React 19 / TypeScript
 | `lib.rs` | Entry point, registers Tauri plugins and commands, holds `AppState { config: Mutex<AppConfig> }` |
 | `commands.rs` | Tauri `#[command]` handlers — every frontend invoke maps here |
 | `config.rs` | Config load/save in json/toml/ini (priority: json > toml > ini), portable mode (file next to exe) |
-| `node_manager.rs` | Local version scan, junction create/remove, system PATH update, system Node.js detection |
+| `node_manager.rs` | Local version scan, junction create/remove, PATH configuration (`check_path_status` / `configure_path` / `relaunch_as_admin`), system Node.js detection |
 | `downloader.rs` | Stream download zip → SHA256 verify → extract (strips zip top-level dir) → verify `node -v` |
 | `remote.rs` | Fetch `index.json` from Node.js mirror, classify versions (Current/LTS/Maintenance/EOL), cache |
 | `error.rs` | `AppError` enum (thiserror) with `From` impls for io/json/toml/reqwest → `Serialize` for frontend |
@@ -50,7 +52,7 @@ Tauri 2.x desktop app: **Rust backend** (`src-tauri/`) + **React 19 / TypeScript
 ### Frontend (`src/`)
 
 - **State**: Zustand store (`useNodeStore.ts`) — single source of truth for config, versions, download progress, UI state.
-- **Components**: `Sidebar.tsx` (version list), `VersionDetail.tsx` (detail panel), `StatusBar.tsx` (bottom bar with status dot + refresh), `SettingsDialog.tsx` (tabbed settings form), `SetupWizard.tsx` (first-run wizard), `TitleBar.tsx` (custom titlebar).
+- **Components**: `Sidebar.tsx` (version list), `VersionDetail.tsx` (detail panel), `StatusBar.tsx` (bottom bar with status dot + refresh), `PathWarning.tsx` (warning strip when `{nodeRoot}\current` is missing from PATH or outranked), `SettingsDialog.tsx` (tabbed settings form), `SetupWizard.tsx` (first-run wizard), `TitleBar.tsx` (custom titlebar).
 - **i18n**: `lib/i18n.ts` — locale JSON files in `locales/` (zh-CN, en, ja), `t(key, replacements)` function, language persisted in config.
 - **Types**: `lib/types.ts` — `AppConfig`, `LocalVersion`, `RemoteVersion`, `DownloadProgress`, etc.
 - **Styling**: Tailwind CSS 4 via `@tailwindcss/vite` plugin, `global.css`.
@@ -64,6 +66,7 @@ download_version(version) → emits "download-progress" events
 switch_version(version)    → emits "version-switched" / "switch-error"
 get_active_version / remove_version(version)
 get_app_info / detect_system_node / open_release_notes(version)
+get_path_status / configure_path / relaunch_as_admin
 check_update / download_and_install(url, name)
 ```
 

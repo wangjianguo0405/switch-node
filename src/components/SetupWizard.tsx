@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useNodeStore } from "../stores/useNodeStore";
 import { t } from "../lib/i18n";
-import { FolderOpen, ChevronRight, ChevronLeft } from "lucide-react";
+import {
+  FolderOpen,
+  ChevronRight,
+  ChevronLeft,
+  CheckCircle2,
+  Loader2,
+} from "lucide-react";
 import type { AppConfig } from "../lib/types";
 
 export function SetupWizard() {
@@ -9,11 +15,16 @@ export function SetupWizard() {
     config,
     wizardStep,
     remoteVersions,
+    pathStatus,
+    pathBusy,
     setWizardStep,
     updateConfig,
     downloadVersion,
     refreshRemote,
     refreshLocal,
+    checkPath,
+    configurePath,
+    relaunchAsAdmin,
   } = useNodeStore();
 
   const [selectedDir, setSelectedDir] = useState(
@@ -24,6 +35,7 @@ export function SetupWizard() {
   );
   const [installing, setInstalling] = useState(false);
   const [installedVersion, setInstalledVersion] = useState<string | null>(null);
+  const [pathError, setPathError] = useState<string | null>(null);
 
   // Get the latest LTS version for suggested install
   const latestLTS = remoteVersions.find((v) => v.isLatestLts);
@@ -70,6 +82,19 @@ export function SetupWizard() {
         // Error handled in store
       }
       setInstalling(false);
+    } else if (wizardStep === 3) {
+      // Move on to PATH setup
+      setWizardStep(4);
+      checkPath();
+    }
+  };
+
+  const handleConfigurePath = async () => {
+    setPathError(null);
+    try {
+      await configurePath();
+    } catch (err) {
+      setPathError(String(err));
     }
   };
 
@@ -99,7 +124,7 @@ export function SetupWizard() {
 
       {/* Steps indicator */}
       <div className="flex items-center justify-center gap-2 px-6 py-4">
-        {[1, 2, 3].map((step) => (
+        {[1, 2, 3, 4].map((step) => (
           <div key={step} className="flex items-center gap-2">
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
@@ -110,7 +135,7 @@ export function SetupWizard() {
             >
               {step}
             </div>
-            {step < 3 && (
+            {step < 4 && (
               <div
                 className={`w-8 h-0.5 ${
                   step < wizardStep
@@ -233,6 +258,70 @@ export function SetupWizard() {
             )}
           </div>
         )}
+
+        {wizardStep === 4 && (
+          <div className="max-w-md w-full">
+            <h2 className="text-lg font-medium text-gray-800 dark:text-gray-200 mb-2">
+              {t("path.step4")}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              {t("path.step4Desc")}
+            </p>
+
+            {!pathStatus ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <Loader2 size={14} className="animate-spin" />
+                {t("common.loading")}
+              </div>
+            ) : pathStatus.configured && !pathStatus.shadowedBy ? (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-900">
+                <CheckCircle2
+                  size={16}
+                  className="text-green-600 dark:text-green-500 flex-shrink-0"
+                />
+                <span className="text-sm text-green-800 dark:text-green-300">
+                  {t("path.alreadyOk")}
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-amber-700 dark:text-amber-400/90 break-all p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900">
+                  {pathStatus.shadowedBy
+                    ? t("path.shadowedDesc", {
+                        path: pathStatus.shadowedBy,
+                        linkPath: pathStatus.linkPath,
+                      })
+                    : t("path.warningDesc", { linkPath: pathStatus.linkPath })}
+                </p>
+
+                {pathError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 break-all">
+                    {t("path.adminRequired")} {pathError}
+                  </p>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleConfigurePath}
+                    disabled={pathBusy}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-node-green hover:bg-node-green/90 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {pathBusy && <Loader2 size={14} className="animate-spin" />}
+                    {pathBusy ? t("path.configuring") : t("path.configure")}
+                  </button>
+                  {(pathError || pathStatus.shadowedBy) && (
+                    <button
+                      onClick={relaunchAsAdmin}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md text-sm transition-colors text-gray-800 dark:text-gray-200"
+                    >
+                      {t("path.relaunchAdmin")}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
@@ -249,20 +338,20 @@ export function SetupWizard() {
           )}
         </div>
         <div>
-          {wizardStep < 3 && (
+          {wizardStep < 4 && (
             <button
               onClick={handleNext}
-              className="flex items-center gap-1 px-6 py-2 bg-node-green hover:bg-node-green/90 text-white rounded-md text-sm font-medium transition-colors"
+              disabled={wizardStep === 3 && installing}
+              className="flex items-center gap-1 px-6 py-2 bg-node-green hover:bg-node-green/90 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
             >
               {t("wizard.next")}
               <ChevronRight size={14} />
             </button>
           )}
-          {wizardStep === 3 && (
+          {wizardStep === 4 && (
             <button
               onClick={handleFinish}
-              disabled={installing}
-              className="flex items-center gap-1 px-6 py-2 bg-node-green hover:bg-node-green/90 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 px-6 py-2 bg-node-green hover:bg-node-green/90 text-white rounded-md text-sm font-medium transition-colors"
             >
               {t("wizard.finish")}
             </button>
