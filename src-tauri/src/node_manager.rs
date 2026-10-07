@@ -333,7 +333,14 @@ fn read_path_environment() -> Result<RawPathEnvironment, AppError> {
 $m = [Environment]::GetEnvironmentVariable("PATH", "Machine"); if ($null -eq $m) { $m = "" }
 $u = [Environment]::GetEnvironmentVariable("PATH", "User"); if ($null -eq $u) { $u = "" }
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-[pscustomobject]@{ machine = $m; user = $u; admin = $admin } | ConvertTo-Json -Compress
+$json = [pscustomobject]@{ machine = $m; user = $u; admin = $admin } | ConvertTo-Json -Compress
+
+# Leave as pure ASCII. On a CJK Windows the console codepage is CP936/CP932, so a
+# non-ASCII path (e.g. C:\用户\...) comes back as bytes that are not valid UTF-8
+# and serde_json rejects the whole response.
+-join ($json.ToCharArray() | ForEach-Object {
+    if ([int]$_ -gt 127) { "\u{0:x4}" -f [int]$_ } else { $_ }
+})
 "#;
 
     let mut cmd = Command::new("powershell");

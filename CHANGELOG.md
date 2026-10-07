@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.1.3
+
+- **Fixed PATH detection failing outright on a CJK Windows.** PATH is read through `powershell` and parsed as strict UTF-8, but PowerShell writes a redirected stdout in the console codepage (CP936/CP932) — so any non-ASCII path, such as a Chinese or Japanese user name, came back as bytes `serde_json` rejected with `invalid unicode code point`. The script now escapes every non-ASCII character as `\uXXXX`, making the output pure ASCII, which is byte-identical in every codepage.
+
 ## v1.1.2
 
 - **PATH is now configured automatically.** The only way to write it was a button in the wizard or the warning strip, which was easy to miss — installs ended up with `node` still unavailable in a terminal. It is now written without asking at startup (once a version is active, so `nodeRoot` is settled) and after every successful switch.
