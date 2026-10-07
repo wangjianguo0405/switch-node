@@ -406,7 +406,12 @@ fn build_path_status(config: &AppConfig, env: &RawPathEnvironment) -> PathStatus
 /// shadow it. Read-only — never modifies the environment.
 pub fn check_path_status(config: &AppConfig) -> Result<PathStatus, AppError> {
     let env = read_path_environment()?;
-    Ok(build_path_status(config, &env))
+    let status = build_path_status(config, &env);
+    info!(
+        "PATH check: configured={} scope={:?} shadowed_by={:?}",
+        status.configured, status.scope, status.shadowed_by
+    );
+    Ok(status)
 }
 
 /// Add `{nodeRoot}\current` to PATH, once.

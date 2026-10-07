@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.1.1
+
+- **Fixed the app freezing ("未响应") during auto-update.** The download ran on the main thread and blocked the webview for its whole duration; it now runs on a blocking thread pool.
+- **Fixed the update progress bar stalling at 90%.** It was a fake timer capped at 90, unrelated to the download. The download loop now reports real percentages, matching how Node version downloads already work.
+- Fixed a 1–2 second UI freeze when checking or configuring PATH — both commands spawn PowerShell and now run off the main thread.
+- Added logging for PATH checks and writes, so a misconfigured machine can be diagnosed from the log.
+
 ## v1.1.0
 
 - **The app now configures PATH itself** — fixes `node` not being found in a terminal on a fresh machine. Writes the machine PATH first and falls back to the user PATH when the write is refused for lack of admin; writes nothing at all when the entry is already present.

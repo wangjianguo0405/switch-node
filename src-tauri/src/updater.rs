@@ -231,6 +231,7 @@ pub fn download_and_install(
     asset_name: &str,
     app_dir: &Path,
     token: Option<&str>,
+    on_progress: impl Fn(u8),
 ) -> Result<(), String> {
     let temp_dir = std::env::temp_dir().join("switch-node_update");
     let new_dir = temp_dir.join("new");
@@ -282,6 +283,7 @@ pub fn download_and_install(
 
     let mut reader = resp.into_body().into_reader();
     let mut downloaded: u64 = 0;
+    let mut last_pct: Option<u8> = None;
     let mut buf = [0u8; 8192];
     let mut file = std::fs::File::create(&download_path)
         .map_err(|e| format!("Failed to create file: {}", e))?;
@@ -297,9 +299,13 @@ pub fn download_and_install(
             .map_err(|e| format!("File write error: {}", e))?;
         downloaded += n as u64;
         if let Some(total) = total {
-            let pct = (downloaded * 100) / total;
-            if pct % 10 == 0 {
+            // Stop at 99: the file still has to be moved or extracted, so
+            // showing 100 here would claim a finish that has not happened.
+            let pct = ((downloaded * 100) / total).min(99) as u8;
+            if last_pct != Some(pct) {
+                last_pct = Some(pct);
                 log::info!("[UPDATER] Download progress: {}%", pct);
+                on_progress(pct);
             }
         }
     }
@@ -354,6 +360,7 @@ pub fn download_and_install(
         log::info!("[UPDATER] Extraction complete");
     }
 
+    on_progress(100);
     spawn_update_script(&new_dir, app_dir, is_exe)?;
 
     Ok(())

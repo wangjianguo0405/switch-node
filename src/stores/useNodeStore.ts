@@ -212,6 +212,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           statusMessage: `${event.payload.error}`,
         });
       });
+
+      // Listen for app-update download progress
+      listen<number>("update-progress", (event) => {
+        set({ updateProgress: event.payload });
+      });
     } catch (err) {
       set({ loading: false, error: String(err) });
     }
@@ -424,14 +429,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         throw new Error("Download URL not found");
       }
 
-      const timer = setInterval(() => {
-        set((s) => ({
-          updateProgress: Math.min(s.updateProgress + 10, 90),
-        }));
-      }, 300);
-
+      // Progress arrives as "update-progress" events emitted from the download
+      // loop; a successful resolve means the installer script has taken over
+      // and this process is about to exit.
       await commands.downloadAndInstall(latest.download_url, latest.asset_name);
-      clearInterval(timer);
     } catch (e) {
       set({
         updateDownloading: false,

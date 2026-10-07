@@ -222,18 +222,25 @@ pub fn detect_system_node(state: ConfigState<'_>) -> Result<Option<SystemNodeInf
     Ok(node_manager::detect_system_node(&config))
 }
 
-/// Report whether `{nodeRoot}\current` is on PATH, and what would shadow it
-#[command]
+/// Report whether `{nodeRoot}\current` is on PATH, and what would shadow it.
+/// `async` so the PowerShell subprocess does not block the webview.
+#[command(async)]
 pub fn get_path_status(state: ConfigState<'_>) -> Result<PathStatus, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
-    node_manager::check_path_status(&config).map_err(|e| e.to_string())
+    node_manager::check_path_status(&config).map_err(|e| {
+        log::error!("PATH status check failed: {}", e);
+        e.to_string()
+    })
 }
 
 /// Add `{nodeRoot}\current` to PATH — machine scope first, user scope on refusal
-#[command]
+#[command(async)]
 pub fn configure_path(state: ConfigState<'_>) -> Result<PathStatus, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
-    node_manager::configure_path(&config).map_err(|e| e.to_string())
+    node_manager::configure_path(&config).map_err(|e| {
+        log::error!("PATH configuration failed: {}", e);
+        e.to_string()
+    })
 }
 
 /// Relaunch the app elevated, so the machine PATH becomes writable

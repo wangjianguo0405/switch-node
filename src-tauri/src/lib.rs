@@ -9,7 +9,7 @@ mod updater;
 use chrono::Utc;
 use log::info;
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 pub struct AppState {
     pub config: Mutex<config::AppConfig>,
@@ -91,9 +91,9 @@ async fn check_update(state: State<'_, AppState>) -> Result<updater::UpdateInfo,
 }
 
 #[tauri::command]
-fn download_and_install(
+async fn download_and_install(
     app_handle: tauri::AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     download_url: String,
     asset_name: String,
 ) -> Result<(), String> {
@@ -103,13 +103,27 @@ fn download_and_install(
         .unwrap()
         .to_path_buf();
 
-    let config = state.config.lock().map_err(|e| e.to_string())?;
-    updater::download_and_install(
-        &download_url,
-        &asset_name,
-        &exe_dir,
-        config.github_token.as_deref(),
-    )?;
+    let token = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.github_token.clone()
+    };
+
+    // ureq is blocking, and a synchronous command would run it on the main
+    // thread — freezing the webview until the download finished.
+    let progress_handle = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        updater::download_and_install(
+            &download_url,
+            &asset_name,
+            &exe_dir,
+            token.as_deref(),
+            |pct| {
+                let _ = progress_handle.emit("update-progress", pct);
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("Update task failed: {}", e))??;
 
     // Batch script launched — exit app
     app_handle.exit(0);
